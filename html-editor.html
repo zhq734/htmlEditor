@@ -1011,10 +1011,14 @@ const STORAGE_KEYS = {
   recentColors: 'htmlEditor.recentColors',
   lastFileMeta: 'htmlEditor.lastFileMeta',
   lastHtmlSnapshot: 'htmlEditor.lastHtmlSnapshot',
+  lastHtmlSessionSnapshot: 'htmlEditor.lastHtmlSessionSnapshot',
 };
 const HANDLE_DB_NAME = 'htmlEditorHandles';
+const HANDLE_DB_VERSION = 2;
 const HANDLE_STORE_NAME = 'handles';
+const SNAPSHOT_STORE_NAME = 'snapshots';
 const HANDLE_LAST_FILE_KEY = 'lastFileHandle';
+const SNAPSHOT_LAST_HTML_KEY = 'lastHtmlSnapshot';
 const MAX_PERSISTED_SNAPSHOT_LENGTH = 2500000;
 let persistSnapshotTimer = 0;
 const MAX_HISTORY_ENTRIES = 80;
@@ -1757,24 +1761,75 @@ function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
     return;
   }
 
+  let shouldPersistToIndexedDb = html.length > MAX_PERSISTED_SNAPSHOT_LENGTH
+    || hasHeavyEmbeddedMediaData(html);
+  let persistedOutsideIndexedDb = false;
+
   try {
-    localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, html);
+    sessionStorage.setItem(STORAGE_KEYS.lastHtmlSessionSnapshot, html);
+    persistedOutsideIndexedDb = true;
   } catch (err) {
-    console.warn('保存内容快照失败', err);
+    console.warn('保存会话内容快照失败', err);
+    shouldPersistToIndexedDb = true;
   }
+
+  try {
+    if (html.length <= MAX_PERSISTED_SNAPSHOT_LENGTH) {
+      localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, html);
+      persistedOutsideIndexedDb = true;
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.lastHtmlSnapshot);
+    }
+  } catch (err) {
+    console.warn('保存持久内容快照失败', err);
+    shouldPersistToIndexedDb = true;
+  }
+
+  if (shouldPersistToIndexedDb || !persistedOutsideIndexedDb) {
+    void setStoredSnapshot(SNAPSHOT_LAST_HTML_KEY, html).catch(err => {
+      console.warn('保存 IndexedDB 内容快照失败', err);
+    });
+    return;
+  }
+
+  void clearStoredSnapshot(SNAPSHOT_LAST_HTML_KEY).catch(err => {
+    console.warn('清理 IndexedDB 内容快照失败', err);
+  });
 }
 
 function clearPersistedHtmlSnapshot() {
   try {
     localStorage.removeItem(STORAGE_KEYS.lastHtmlSnapshot);
   } catch (err) {
-    console.warn('清理内容快照失败', err);
+    console.warn('清理持久内容快照失败', err);
   }
+
+  try {
+    sessionStorage.removeItem(STORAGE_KEYS.lastHtmlSessionSnapshot);
+  } catch (err) {
+    console.warn('清理会话内容快照失败', err);
+  }
+
+  void clearStoredSnapshot(SNAPSHOT_LAST_HTML_KEY).catch(err => {
+    console.warn('清理 IndexedDB 内容快照失败', err);
+  });
 }
 
-function readPersistedHtmlSnapshot() {
+async function readPersistedHtmlSnapshot() {
   try {
-    return localStorage.getItem(STORAGE_KEYS.lastHtmlSnapshot) || '';
+    const sessionSnapshot = sessionStorage.getItem(STORAGE_KEYS.lastHtmlSessionSnapshot) || '';
+    if (sessionSnapshot) return sessionSnapshot;
+  } catch {}
+
+  try {
+    const localSnapshot = localStorage.getItem(STORAGE_KEYS.lastHtmlSnapshot) || '';
+    if (localSnapshot) return localSnapshot;
+  } catch {
+    // Ignore and fall back to IndexedDB.
+  }
+
+  try {
+    return await getStoredSnapshot(SNAPSHOT_LAST_HTML_KEY) || '';
   } catch {
     return '';
   }
@@ -1793,8 +1848,6 @@ function hasEphemeralMediaPreview(html) {
 
 function shouldPersistHtmlSnapshot(html) {
   if (!html) return false;
-  if (html.length > MAX_PERSISTED_SNAPSHOT_LENGTH) return false;
-  if (hasHeavyEmbeddedMediaData(html)) return false;
   if (hasEphemeralMediaPreview(html)) return false;
   return true;
 }
@@ -2463,10 +2516,13 @@ function openHandleDatabase() {
       return;
     }
 
-    const request = indexedDB.open(HANDLE_DB_NAME, 1);
+    const request = indexedDB.open(HANDLE_DB_NAME, HANDLE_DB_VERSION);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(HANDLE_STORE_NAME)) {
         request.result.createObjectStore(HANDLE_STORE_NAME);
+      }
+      if (!request.result.objectStoreNames.contains(SNAPSHOT_STORE_NAME)) {
+        request.result.createObjectStore(SNAPSHOT_STORE_NAME);
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -2505,6 +2561,42 @@ async function clearStoredHandle(key) {
   await new Promise((resolve, reject) => {
     const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
     tx.objectStore(HANDLE_STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function setStoredSnapshot(key, html) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readwrite');
+    tx.objectStore(SNAPSHOT_STORE_NAME).put(html, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getStoredSnapshot(key) {
+  const db = await openHandleDatabase();
+  if (!db) return '';
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readonly');
+    const request = tx.objectStore(SNAPSHOT_STORE_NAME).get(key);
+    request.onsuccess = () => resolve(request.result || '');
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function clearStoredSnapshot(key) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readwrite');
+    tx.objectStore(SNAPSHOT_STORE_NAME).delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -2583,7 +2675,7 @@ async function restoreLastSession() {
     }
   }
 
-  const snapshot = readPersistedHtmlSnapshot();
+  const snapshot = await readPersistedHtmlSnapshot();
   if (snapshot) {
     if (!shouldPersistHtmlSnapshot(snapshot)) {
       clearPersistedHtmlSnapshot();
