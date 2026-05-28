@@ -103,11 +103,26 @@ body {
   white-space: nowrap;
   line-height: 1.4;
 }
+.btn,
+.tb-btn,
+.mode-btn,
+.tb-swatch {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .btn:hover { background: var(--surface3); border-color: var(--border-light); }
 .btn:active { background: var(--surface4); }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.btn:disabled,
+.tb-btn:disabled,
+.mode-btn:disabled,
+.tb-swatch:disabled {
+  -webkit-user-select: text;
+  user-select: text;
+  pointer-events: auto;
 }
 .btn:disabled:hover {
   background: var(--surface2);
@@ -122,6 +137,119 @@ body {
 .btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn--icon { padding: 6px 10px; }
 .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0,0,0,0.5);
+  z-index: 3000;
+}
+.dialog-backdrop.visible { display: flex; }
+.dialog {
+  width: min(680px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 14px;
+  box-shadow: 0 20px 48px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+.dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-bright);
+}
+.dialog__subtitle {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.dialog__body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+}
+.dialog__status {
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 18px;
+}
+.dialog__actions {
+  display: flex;
+  gap: 8px;
+}
+.dialog__actions--wrap {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dialog-field__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dialog-input, .dialog-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition), background var(--transition);
+}
+.dialog-input {
+  height: 40px;
+  padding: 0 12px;
+}
+.dialog-textarea {
+  min-height: 116px;
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.dialog-textarea--compact {
+  min-height: 92px;
+}
+.dialog-input:focus, .dialog-textarea:focus {
+  border-color: var(--accent);
+  background: var(--surface3);
+}
+.dialog-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 /* =============================================
    Hint Bar
@@ -545,6 +673,10 @@ body {
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
       <span>打开文件夹</span>
     </button>
+    <button class="btn" id="btnOpenUrl" title="打开页面链接">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.75 2a2.75 2.75 0 0 0 0 5.5H6a.5.5 0 0 0 0-1H4.75a1.75 1.75 0 1 1 0-3.5h2.5a1.75 1.75 0 0 1 1.75 1.75.5.5 0 0 0 1 0A2.75 2.75 0 0 0 7.25 2h-2.5zm4.75 6a.5.5 0 0 0-.5.5 1.75 1.75 0 0 1-1.75 1.75h-2.5a1.75 1.75 0 1 1 0-3.5H6a.5.5 0 0 0 0-1H4.75a2.75 2.75 0 0 0 0 5.5h2.5A2.75 2.75 0 0 0 10 8.5a.5.5 0 0 0-.5-.5z"/><path d="M5.646 8.354a.5.5 0 0 1 0-.708l4-4a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0z"/><path d="M5.646 12.354a.5.5 0 0 1 0-.708l4-4a.5.5 0 1 1 .708.708l-4 4a.5.5 0 0 1-.708 0z"/></svg>
+      <span>打开 URL</span>
+    </button>
     <button class="btn" id="btnSource" title="源码分栏">
       <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M2 2.5A1.5 1.5 0 0 1 3.5 1h2.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 0 9.62 3.5H12.5A1.5 1.5 0 0 1 14 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-10zm2 0v10a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5a.5.5 0 0 0-.5-.5H9.621a2.5 2.5 0 0 1-1.768-.732L6.44 2.354A.5.5 0 0 0 6.086 2.2H3.5a.5.5 0 0 0-.5.5z"/></svg>
       <span>源码</span>
@@ -657,17 +789,10 @@ body {
           <option value="8">8px</option>
         </select>
       </div>
-      <div class="tb-block-panel__row tb-block-panel__row--triple">
-        <span class="tb-block-panel__label">颜色</span>
-        <input type="color" class="tb-color" id="tbBorderColor" value="#e8913a" title="边框颜色" />
-        <div class="tb-swatches" id="tbBorderPresetColors"></div>
-        <button class="tb-btn tb-btn--wide" id="tbUseTextColorForBorder" title="使用文字颜色">文字色</button>
-      </div>
-      <div class="tb-block-panel__row tb-block-panel__row--triple">
+      <div class="tb-block-panel__row tb-block-panel__row--compact">
         <span class="tb-block-panel__label">背景</span>
-        <input type="color" class="tb-color" id="tbBackgroundColor" value="#fff3e4" title="背景颜色" />
-        <div class="tb-swatches" id="tbBackgroundPresetColors"></div>
-        <button class="tb-btn tb-btn--wide" id="tbUseTextColorForBackground" title="使用文字颜色浅色版">跟随</button>
+        <input type="color" class="tb-color" id="tbBackgroundColor" value="#ffffff" title="背景颜色" />
+        <button class="tb-btn tb-btn--wide" id="tbClearBackgroundColor" title="清除背景">清除背景</button>
       </div>
       <div class="tb-block-panel__row">
         <span class="tb-block-panel__label">圆角</span>
@@ -720,6 +845,48 @@ body {
      ============================================= -->
 <div class="toast" id="toast"></div>
 
+<div class="dialog-backdrop" id="urlDialogBackdrop">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="urlDialogTitle">
+    <div class="dialog__header">
+      <div>
+        <div class="dialog__title" id="urlDialogTitle">打开 URL 快照</div>
+        <div class="dialog__subtitle">导入公开页面的编辑快照。当前版本优先支持静态页和可跨域抓取的公开页面。</div>
+      </div>
+      <button class="btn btn--icon" id="btnCloseUrlDialog" title="关闭">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 0 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg>
+      </button>
+    </div>
+    <div class="dialog__body">
+      <div class="dialog-field">
+        <label class="dialog-field__label" for="urlInput">页面链接</label>
+        <input class="dialog-input" id="urlInput" type="url" placeholder="https://example.com/page" autocomplete="off" />
+      </div>
+      <div class="dialog-field">
+        <label class="dialog-field__label" for="urlFallbackHtml">抓取失败时可粘贴页面源码</label>
+        <textarea class="dialog-textarea" id="urlFallbackHtml" placeholder="可选：如果目标站不支持跨域抓取，可以手动粘贴页面 HTML 源码。"></textarea>
+      </div>
+      <div class="dialog-field">
+        <label class="dialog-field__label" for="urlRenderedPayload">登录态 / 前端渲染页回传结果</label>
+        <textarea class="dialog-textarea dialog-textarea--compact" id="urlRenderedPayload" placeholder="如果目标页需要登录或依赖前端渲染，请点击“渲染态导入”。若自动回传失败，可把采集结果粘贴到这里。"></textarea>
+      </div>
+      <div class="dialog-tips">
+        <div>1. “抓取快照”适合公开静态页；会移除脚本、内联事件，并把相对资源地址改为绝对地址。</div>
+        <div>2. 登录态页面、SPA 或白屏页请用“渲染态导入”，它会基于你当前浏览器页里已经渲染出的 DOM 生成快照。</div>
+        <div>3. 如果站点阻止自动回传，控制台脚本会输出采集结果；把结果粘贴到上面的输入框即可导入。</div>
+      </div>
+    </div>
+    <div class="dialog__footer">
+      <div class="dialog__status" id="urlDialogStatus">等待输入 URL</div>
+      <div class="dialog__actions dialog__actions--wrap">
+        <button class="btn" id="btnUseFallbackHtml" title="使用粘贴的 HTML">使用粘贴 HTML</button>
+        <button class="btn" id="btnUseRenderedPayload" title="使用渲染态回传结果">使用回传结果</button>
+        <button class="btn" id="btnOpenRenderedImport" title="打开登录态/渲染态导入">渲染态导入</button>
+        <button class="btn btn--primary" id="btnFetchUrlSnapshot" title="抓取页面快照">抓取快照</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Hidden file inputs -->
 <input type="file" id="fileInputImage" accept="image/*" style="display:none" />
 <input type="file" id="fileInputVideo" accept="video/*" style="display:none" />
@@ -734,6 +901,8 @@ const state = {
   currentDirHandle: null,
   currentFileName: '',
   currentDirName: '',
+  currentSourceUrl: '',
+  currentSourceType: 'local',
   isSourceMode: false,
   isEditMode: false,
   selectedMedia: null,
@@ -750,12 +919,23 @@ const state = {
   pendingVideoTarget: null,
   savedTextRange: null,
   toolbarInteracting: false,
+  toolbarUpdateQueued: false,
+  selectedBlock: null,
+  selectionPointerDown: false,
+  activeEditableBlock: null,
+  transientMutationPauseDepth: 0,
+  skippedHeavySnapshotRestore: false,
+  mediaAssetStore: {},
+  nextMediaAssetId: 1,
   recentColors: [],
   history: [],
   historyIndex: -1,
   isApplyingHistory: false,
   historyDebounceTimer: 0,
   recordHistoryOnLoad: false,
+  urlDialogOpen: false,
+  isFetchingUrl: false,
+  renderedImportSessionId: '',
 };
 
 /* =============================================
@@ -769,6 +949,7 @@ const sourceArea = $('#sourceArea');
 const editorContainer = $('#editorContainer');
 const previewPane = $('#previewPane');
 const sourcePane = $('#sourcePane');
+const btnOpenUrl = $('#btnOpenUrl');
 const btnUndo = $('#btnUndo');
 const btnRedo = $('#btnRedo');
 const gutter = $('#gutter');
@@ -776,6 +957,16 @@ const floatingToolbar = $('#floatingToolbar');
 const toast = $('#toast');
 const statusPath = $('#statusPath');
 const statusInfo = $('#statusInfo');
+const urlDialogBackdrop = $('#urlDialogBackdrop');
+const btnCloseUrlDialog = $('#btnCloseUrlDialog');
+const urlInput = $('#urlInput');
+const urlFallbackHtml = $('#urlFallbackHtml');
+const urlRenderedPayload = $('#urlRenderedPayload');
+const urlDialogStatus = $('#urlDialogStatus');
+const btnUseFallbackHtml = $('#btnUseFallbackHtml');
+const btnUseRenderedPayload = $('#btnUseRenderedPayload');
+const btnOpenRenderedImport = $('#btnOpenRenderedImport');
+const btnFetchUrlSnapshot = $('#btnFetchUrlSnapshot');
 const tbFontSize = $('#tbFontSize');
 const tbFontSizeOptions = $('#tbFontSizeOptions');
 const tbLineHeight = $('#tbLineHeight');
@@ -786,15 +977,11 @@ const tbBlockStyleToggle = $('#tbBlockStyleToggle');
 const tbBlockPanel = $('#tbBlockPanel');
 const tbBorderStyle = $('#tbBorderStyle');
 const tbBorderWidth = $('#tbBorderWidth');
-const tbBorderColor = $('#tbBorderColor');
 const tbBackgroundColor = $('#tbBackgroundColor');
+const tbClearBackgroundColor = $('#tbClearBackgroundColor');
 const tbBorderRadius = $('#tbBorderRadius');
 const tbPadding = $('#tbPadding');
 const tbMargin = $('#tbMargin');
-const tbBorderPresetColors = $('#tbBorderPresetColors');
-const tbBackgroundPresetColors = $('#tbBackgroundPresetColors');
-const tbUseTextColorForBorder = $('#tbUseTextColorForBorder');
-const tbUseTextColorForBackground = $('#tbUseTextColorForBackground');
 const tbClearBlockStyle = $('#tbClearBlockStyle');
 
 const FONT_SIZE_MIN = 8;
@@ -817,6 +1004,9 @@ const BLOCK_BORDER_WIDTH_PRESETS = ['0', '1', '2', '4', '8'];
 const BLOCK_RADIUS_PRESETS = ['0', '4', '8', '12', '16'];
 const BLOCK_SPACING_PRESETS = ['0', '8', '12', '16', '24'];
 const BLOCK_TARGET_SELECTOR = 'h1,h2,h3,h4,p,div,li,td,th,blockquote';
+const URL_EDITABLE_DIV_MAX_CHILDREN = 10;
+const URL_EDITABLE_DIV_MAX_TEXT_LENGTH = 1200;
+const URL_EDITABLE_INLINE_MAX_TEXT_LENGTH = 800;
 const STORAGE_KEYS = {
   recentColors: 'htmlEditor.recentColors',
   lastFileMeta: 'htmlEditor.lastFileMeta',
@@ -825,6 +1015,7 @@ const STORAGE_KEYS = {
 const HANDLE_DB_NAME = 'htmlEditorHandles';
 const HANDLE_STORE_NAME = 'handles';
 const HANDLE_LAST_FILE_KEY = 'lastFileHandle';
+const MAX_PERSISTED_SNAPSHOT_LENGTH = 2500000;
 let persistSnapshotTimer = 0;
 const MAX_HISTORY_ENTRIES = 80;
 
@@ -965,11 +1156,13 @@ function initIframe(htmlContent) {
     state.iframeDoc = previewIframe.contentDocument || previewIframe.contentWindow.document;
     state.iframeBody = state.iframeDoc.body;
 
-    // Make body contenteditable
-    state.iframeBody.setAttribute('contenteditable', 'true');
+    // URL 快照模式使用局部块编辑，避免整页 contenteditable 在大 DOM 上卡死
+    state.activeEditableBlock = null;
+    state.iframeBody.setAttribute('contenteditable', state.currentSourceType === 'url' ? 'false' : 'true');
 
     // Inject editor styles
     injectEditorStyles();
+    unlockDisabledButtonsForEditing();
 
     // Protect media elements
     protectMediaElements();
@@ -1000,6 +1193,24 @@ function injectEditorStyles() {
   style.textContent = `
     /* Selection style */
     ::selection { background: rgba(232,145,58,0.3); color: inherit; }
+
+    /* Make native buttons editable/selectable through an inner label host */
+    button[data-editor-button-editable] {
+      -webkit-user-select: text;
+      user-select: text;
+      pointer-events: none;
+    }
+    button[data-editor-button-editable] > [data-editor-button-label] {
+      display: inline-flex;
+      align-items: inherit;
+      justify-content: inherit;
+      gap: inherit;
+      -webkit-user-select: text;
+      user-select: text;
+      pointer-events: auto;
+      cursor: text;
+      outline: none;
+    }
 
     /* Selected block outline */
     .selected-block {
@@ -1068,10 +1279,79 @@ function injectEditorStyles() {
   state.iframeDoc.head.appendChild(style);
 }
 
+function unlockDisabledButtonsForEditing(root = state.iframeBody) {
+  if (!root) return;
+
+  root.querySelectorAll('button').forEach(btn => {
+    if (btn.classList.contains('media-replace-btn')) return;
+
+    if (!btn.hasAttribute('data-editor-original-disabled')) {
+      if (btn.hasAttribute('disabled')) {
+        btn.setAttribute('data-editor-original-disabled', 'true');
+      }
+    }
+    btn.removeAttribute('disabled');
+
+    if (btn.hasAttribute('data-editor-button-editable')) return;
+
+    const label = state.iframeDoc.createElement('span');
+    label.setAttribute('data-editor-button-label', 'true');
+    label.setAttribute('contenteditable', 'true');
+    label.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    label.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+      }
+    });
+
+    while (btn.firstChild) {
+      label.appendChild(btn.firstChild);
+    }
+
+    btn.appendChild(label);
+    btn.setAttribute('data-editor-button-editable', 'true');
+  });
+}
+
+function restoreEditableButtons(root) {
+  if (!root) return;
+
+  root.querySelectorAll('button[data-editor-button-editable]').forEach(btn => {
+    const label = Array.from(btn.children).find(child => child.hasAttribute('data-editor-button-label'));
+    if (label) {
+      while (label.firstChild) {
+        btn.insertBefore(label.firstChild, label);
+      }
+      label.remove();
+    }
+
+    btn.removeAttribute('data-editor-button-editable');
+  });
+}
+
 function getIframeHTML() {
   if (!state.iframeDoc) return '';
-  const clone = state.iframeDoc.documentElement.cloneNode(true);
+  return '<!DOCTYPE html>\n' + createIframeHTMLClone().outerHTML;
+}
 
+function createIframeHTMLClone() {
+  return sanitizeDocumentClone(state.iframeDoc.documentElement.cloneNode(true));
+}
+
+function createSourceHTMLClone(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html || defaultHTML, 'text/html');
+  return sanitizeDocumentClone(doc.documentElement.cloneNode(true));
+}
+
+function isElementNode(node) {
+  return !!node && node.nodeType === 1;
+}
+
+function sanitizeDocumentClone(clone) {
   // Remove editor-injected elements
   const toRemove = clone.querySelectorAll('#__editor_styles__, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
   toRemove.forEach(el => el.remove());
@@ -1088,19 +1368,38 @@ function getIframeHTML() {
     parent.removeChild(w);
   });
 
+  restoreEditableButtons(clone);
+
   // Remove contenteditable attribute
   clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
 
+  // Restore disabled buttons that were unlocked only for editing
+  clone.querySelectorAll('button[data-editor-original-disabled]').forEach(btn => {
+    btn.setAttribute('disabled', '');
+    btn.removeAttribute('data-editor-original-disabled');
+  });
+
+  return clone;
+}
+
+async function getExportHTML() {
+  const clone = state.isEditMode
+    ? createSourceHTMLClone(sourceArea.value)
+    : (state.iframeDoc ? createIframeHTMLClone() : null);
+  if (!clone) return '';
+  await embedMediaAssetsIntoClone(clone);
   return '<!DOCTYPE html>\n' + clone.outerHTML;
 }
 
 /* =============================================
    Protect Media Elements
    ============================================= */
-function protectMediaElements() {
-  if (!state.iframeBody) return;
-  state.iframeBody.querySelectorAll('img, video').forEach(el => {
-    el.setAttribute('contenteditable', 'false');
+function protectMediaElements(root = state.iframeBody) {
+  if (!root) return;
+  root.querySelectorAll('img, video').forEach(el => {
+    if (el.getAttribute('contenteditable') !== 'false') {
+      el.setAttribute('contenteditable', 'false');
+    }
   });
 }
 
@@ -1113,9 +1412,31 @@ function bindIframeEvents() {
 
   // Selection change → update toolbar
   doc.addEventListener('selectionchange', () => {
-    if (doc.activeElement === body || body.contains(doc.activeElement)) {
-      updateToolbar();
+    if (state.selectionPointerDown) return;
+    const host = ensureEditableHostFromSelection() || body;
+    if (isUrlSnapshotMode() && !host) return;
+    if (hasTextSelectionInHost(host) || doc.activeElement === host || host.contains(doc.activeElement)) {
+      queueToolbarUpdate();
     }
+  });
+
+  body.addEventListener('mousedown', (e) => {
+    state.selectionPointerDown = true;
+    hideToolbarUI(false);
+
+    if (!isUrlSnapshotMode()) return;
+
+    const target = e.target;
+    if (target?.tagName === 'IMG' || target?.tagName === 'VIDEO' || target?.closest?.('.media-wrapper')) {
+      return;
+    }
+    const block = resolveEditableBlockTarget(target);
+    if (!block) {
+      dismissSelection();
+      return;
+    }
+
+    activateEditableBlock(block);
   });
 
   // Click events for media and demo cards
@@ -1168,6 +1489,13 @@ function bindIframeEvents() {
     // Deselect media when clicking elsewhere
     deselectMedia();
 
+    if (isUrlSnapshotMode()) {
+      const block = resolveEditableBlockTarget(target);
+      if (block) {
+        activateEditableBlock(block);
+      }
+    }
+
     if (target === body) {
       dismissSelection();
       return;
@@ -1175,9 +1503,16 @@ function bindIframeEvents() {
 
     setTimeout(() => {
       if (!state.iframeDoc || !state.iframeBody) return;
-      const sel = state.iframeDoc.getSelection();
-      const hasActiveTextSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && state.iframeBody.contains(sel.anchorNode);
+      const activeHost = ensureEditableHostFromSelection();
+      const hasActiveTextSelection = hasTextSelectionInHost(activeHost || state.iframeBody);
       if (!hasActiveTextSelection) {
+        if (isUrlSnapshotMode()) {
+          const clickedInsideActiveBlock = activeHost && (activeHost === target || activeHost.contains(target));
+          if (clickedInsideActiveBlock) {
+            hideToolbarUI();
+            return;
+          }
+        }
         dismissSelection();
       }
     }, 0);
@@ -1201,21 +1536,94 @@ function bindIframeEvents() {
   });
 
   // Mouseup for toolbar update
-  body.addEventListener('mouseup', () => setTimeout(updateToolbar, 10));
+  body.addEventListener('mouseup', () => {
+    state.selectionPointerDown = false;
+    if (isUrlSnapshotMode() && !ensureEditableHostFromSelection()) return;
+    queueToolbarUpdate();
+    setTimeout(queueToolbarUpdate, 30);
+  });
 
   // Scroll → keep toolbar attached to the current selection
   body.addEventListener('scroll', () => {
     if (floatingToolbar.classList.contains('visible')) {
-      requestAnimationFrame(updateToolbar);
+      queueToolbarUpdate();
     } else {
       clearSelectedBlocks();
     }
   });
 }
 
+function queueToolbarUpdate() {
+  if (state.toolbarUpdateQueued) return;
+  state.toolbarUpdateQueued = true;
+  requestAnimationFrame(() => {
+    state.toolbarUpdateQueued = false;
+    updateToolbar();
+  });
+}
+
+function withTransientIframeMutationPause(task) {
+  state.transientMutationPauseDepth += 1;
+  try {
+    task();
+  } finally {
+    window.setTimeout(() => {
+      state.transientMutationPauseDepth = Math.max(0, state.transientMutationPauseDepth - 1);
+    }, 0);
+  }
+}
+
 function setupIframeObserver() {
-  const observer = new MutationObserver(() => {
-    protectMediaElements();
+  const observer = new MutationObserver((mutations) => {
+    if (state.transientMutationPauseDepth > 0) return;
+
+    const hasMeaningfulMutation = mutations.some(mutation => {
+      if (mutation.type === 'characterData') return true;
+
+      if (mutation.type === 'childList') {
+        const changedNodes = [
+          ...mutation.addedNodes,
+          ...mutation.removedNodes,
+        ];
+
+        return changedNodes.some(node => {
+          if (node.nodeType !== 1) return true;
+          if (node.id === '__editor_styles__') return false;
+          if (node.classList?.contains('resize-handle')) return false;
+          if (node.classList?.contains('media-replace-btn')) return false;
+          return !node.classList?.contains('selected-block');
+        });
+      }
+
+      if (mutation.type === 'attributes') {
+        const target = mutation.target;
+        if (!isElementNode(target)) return true;
+
+        if (isUrlSnapshotMode() && mutation.attributeName === 'contenteditable') {
+          return false;
+        }
+
+        if (isUrlSnapshotMode() && mutation.attributeName === 'class') {
+          return false;
+        }
+
+        if (mutation.attributeName === 'class') {
+          if (target.classList.contains('selected-block')) return false;
+          if (target.classList.contains('selected-media')) return false;
+        }
+
+        if (mutation.attributeName === 'contenteditable' && target.classList.contains('media-wrapper')) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    if (!hasMeaningfulMutation) return;
+
+    unlockDisabledButtonsForEditing();
+    protectMediaElements(isUrlSnapshotMode() ? getEditableHost() : state.iframeBody);
     if (state.isSourceMode && !state.isEditMode) {
       sourceArea.value = getIframeHTML();
     }
@@ -1307,6 +1715,10 @@ function getCurrentEditorHTML() {
 }
 
 function updateStatusPath() {
+  if (state.currentSourceType === 'url' && state.currentSourceUrl) {
+    statusPath.textContent = state.currentSourceUrl;
+    return;
+  }
   const fileName = state.currentFileName || state.currentFileHandle?.name || '';
   const dirName = state.currentDirName || state.currentDirHandle?.name || '';
   if (fileName && dirName) {
@@ -1321,6 +1733,8 @@ function persistFileMeta() {
     localStorage.setItem(STORAGE_KEYS.lastFileMeta, JSON.stringify({
       fileName: state.currentFileName || state.currentFileHandle?.name || '',
       dirName: state.currentDirName || state.currentDirHandle?.name || '',
+      sourceUrl: state.currentSourceUrl || '',
+      sourceType: state.currentSourceType || 'local',
     }));
   } catch (err) {
     console.warn('保存文件信息失败', err);
@@ -1337,10 +1751,24 @@ function readPersistedFileMeta() {
 
 function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
   if (!html) return;
+
+  if (!shouldPersistHtmlSnapshot(html)) {
+    clearPersistedHtmlSnapshot();
+    return;
+  }
+
   try {
     localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, html);
   } catch (err) {
     console.warn('保存内容快照失败', err);
+  }
+}
+
+function clearPersistedHtmlSnapshot() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.lastHtmlSnapshot);
+  } catch (err) {
+    console.warn('清理内容快照失败', err);
   }
 }
 
@@ -1352,11 +1780,156 @@ function readPersistedHtmlSnapshot() {
   }
 }
 
+function hasHeavyEmbeddedMediaData(html) {
+  if (!html) return false;
+  return /\b(?:src|poster)=["']data:(?:image|video)\/[^"']{4096,}["']/i.test(html);
+}
+
+function hasEphemeralMediaPreview(html) {
+  if (!html) return false;
+  return html.includes('data-editor-media-id=')
+    || /\b(?:src|poster)=["']blob:/i.test(html);
+}
+
+function shouldPersistHtmlSnapshot(html) {
+  if (!html) return false;
+  if (html.length > MAX_PERSISTED_SNAPSHOT_LENGTH) return false;
+  if (hasHeavyEmbeddedMediaData(html)) return false;
+  if (hasEphemeralMediaPreview(html)) return false;
+  return true;
+}
+
 function scheduleSnapshotPersist(html) {
   clearTimeout(persistSnapshotTimer);
   persistSnapshotTimer = window.setTimeout(() => {
     persistHtmlSnapshot(html || getCurrentEditorHTML());
   }, 240);
+}
+
+function isUrlSnapshotMode() {
+  return state.currentSourceType === 'url';
+}
+
+function getEditableHost() {
+  if (!state.iframeBody) return null;
+  if (!isUrlSnapshotMode()) return state.iframeBody;
+  return state.activeEditableBlock && state.iframeBody.contains(state.activeEditableBlock)
+    ? state.activeEditableBlock
+    : null;
+}
+
+function getLiveSelectionRange() {
+  if (!state.iframeDoc) return null;
+  const sel = state.iframeDoc.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  return sel.getRangeAt(0);
+}
+
+function resolveEditableBlockTarget(target) {
+  if (!target || !state.iframeBody) return null;
+  let node = target.nodeType === 3 ? target.parentElement : target;
+  if (!node || node === state.iframeBody) return null;
+
+  let inlineCandidate = null;
+
+  while (node && node !== state.iframeBody) {
+    if (!isUrlSnapshotMode()) {
+      if (node.matches?.(BLOCK_TARGET_SELECTOR)) return node;
+    } else {
+      if (!inlineCandidate && isReasonableUrlEditableInline(node)) {
+        inlineCandidate = node;
+      }
+      if (isReasonableUrlEditableBlock(node)) {
+        return node;
+      }
+    }
+    node = node.parentElement;
+  }
+
+  return isUrlSnapshotMode() ? inlineCandidate : null;
+}
+
+function isReasonableUrlEditableBlock(node) {
+  if (!isElementNode(node) || !node.matches(BLOCK_TARGET_SELECTOR)) return false;
+
+  const tag = node.tagName;
+  if (tag !== 'DIV') return true;
+
+  const textLength = node.textContent.trim().length;
+  if (!textLength || textLength > URL_EDITABLE_DIV_MAX_TEXT_LENGTH) return false;
+  if (node.childElementCount > URL_EDITABLE_DIV_MAX_CHILDREN) return false;
+
+  return !Array.from(node.children).some(child => (
+    /^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER|NAV|TABLE|UL|OL|FORM|ASIDE)$/i.test(child.tagName)
+  ));
+}
+
+function isReasonableUrlEditableInline(node) {
+  if (!isElementNode(node)) return false;
+  if (!/^(A|SPAN|STRONG|EM|B|I|U|S|SMALL|MARK|CODE|LABEL)$/i.test(node.tagName)) {
+    return false;
+  }
+
+  const textLength = node.textContent.trim().length;
+  if (!textLength || textLength > URL_EDITABLE_INLINE_MAX_TEXT_LENGTH) return false;
+  if (node.childElementCount > URL_EDITABLE_DIV_MAX_CHILDREN) return false;
+
+  return !Array.from(node.children).some(child => (
+    /^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER|NAV|TABLE|UL|OL|FORM|ASIDE|P|H1|H2|H3|H4|LI|TD|TH|BLOCKQUOTE)$/i.test(child.tagName)
+  ));
+}
+
+function deactivateEditableBlock() {
+  if (!state.activeEditableBlock) return;
+  if (state.iframeBody?.contains(state.activeEditableBlock)) {
+    state.activeEditableBlock.removeAttribute('contenteditable');
+  }
+  state.activeEditableBlock = null;
+}
+
+function activateEditableBlock(block) {
+  if (!isUrlSnapshotMode() || !state.iframeBody || !block || block === state.iframeBody) return false;
+  if (!state.iframeBody.contains(block)) return false;
+  if (state.activeEditableBlock === block) return true;
+
+  deactivateEditableBlock();
+  state.activeEditableBlock = block;
+  state.activeEditableBlock.setAttribute('contenteditable', 'true');
+  protectMediaElements(state.activeEditableBlock);
+  return true;
+}
+
+function ensureEditableHostFromSelection() {
+  if (!isUrlSnapshotMode()) return getEditableHost();
+
+  const currentHost = getEditableHost();
+  const range = getLiveSelectionRange();
+  if (!range) return currentHost;
+
+  let node = range.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentElement;
+  const block = resolveEditableBlockTarget(node);
+  if (!block) return currentHost;
+
+  activateEditableBlock(block);
+  return getEditableHost();
+}
+
+function hasTextSelectionInHost(host = getEditableHost()) {
+  if (!host || !state.iframeDoc) return false;
+  const sel = state.iframeDoc.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+  return host.contains(sel.anchorNode) || host.contains(sel.focusNode);
+}
+
+function hideToolbarUI(resetControls = true) {
+  toggleBlockPanel(false);
+  floatingToolbar.classList.remove('visible');
+  floatingToolbar.style.visibility = '';
+  clearSelectedBlocks();
+  if (resetControls) {
+    resetToolbarTextControls();
+  }
 }
 
 function clearSelectionState() {
@@ -1375,17 +1948,16 @@ function clearSelectionState() {
 }
 
 function dismissSelection() {
-  toggleBlockPanel(false);
-  floatingToolbar.classList.remove('visible');
-  floatingToolbar.style.visibility = '';
+  hideToolbarUI();
   clearSelectionState();
+  deactivateEditableBlock();
   resetToolbarTextControls();
 }
 
 function finishToolbarInteraction(shouldRefresh = true) {
   state.toolbarInteracting = false;
   if (shouldRefresh) {
-    requestAnimationFrame(updateToolbar);
+    queueToolbarUpdate();
   }
 }
 
@@ -1429,7 +2001,7 @@ function applyHistoryEntry(html) {
     sourceArea.value = html;
     scheduleSnapshotPersist(html);
   } else {
-    loadEditorContent(html);
+    loadEditorContent(html, { resetMediaAssets: false });
   }
 
   dismissSelection();
@@ -1459,6 +2031,332 @@ function updateHistoryButtons() {
   btnRedo.disabled = state.historyIndex >= state.history.length - 1 || state.historyIndex === -1;
 }
 
+function setUrlDialogStatus(message) {
+  urlDialogStatus.textContent = message;
+}
+
+function setUrlDialogLoading(isLoading) {
+  state.isFetchingUrl = isLoading;
+  btnFetchUrlSnapshot.disabled = isLoading;
+  btnUseFallbackHtml.disabled = isLoading;
+  btnUseRenderedPayload.disabled = isLoading;
+  btnOpenRenderedImport.disabled = isLoading;
+  urlInput.disabled = isLoading;
+  urlFallbackHtml.disabled = isLoading;
+  urlRenderedPayload.disabled = isLoading;
+  btnCloseUrlDialog.disabled = isLoading;
+}
+
+function openUrlDialog() {
+  state.urlDialogOpen = true;
+  urlDialogBackdrop.classList.add('visible');
+  state.renderedImportSessionId = '';
+  if (state.currentSourceUrl) {
+    urlInput.value = state.currentSourceUrl;
+  }
+  setUrlDialogStatus('等待输入 URL');
+  requestAnimationFrame(() => urlInput.focus());
+}
+
+function closeUrlDialog(force = false) {
+  if (state.isFetchingUrl && !force) return;
+  state.urlDialogOpen = false;
+  urlDialogBackdrop.classList.remove('visible');
+}
+
+function normalizeUrlInput(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
+function absolutizeUrl(url, baseUrl) {
+  try {
+    return new URL(url, baseUrl).href;
+  } catch {
+    return url;
+  }
+}
+
+function rewriteSrcset(srcset, baseUrl) {
+  return String(srcset || '')
+    .split(',')
+    .map(part => {
+      const item = part.trim();
+      if (!item) return '';
+      const bits = item.split(/\s+/);
+      const src = absolutizeUrl(bits[0], baseUrl);
+      return [src, ...bits.slice(1)].join(' ').trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function rewriteCssUrls(cssText, baseUrl) {
+  return String(cssText || '').replace(/url\((['"]?)([^'")]+)\1\)/gi, (full, quote, url) => {
+    const trimmed = String(url).trim();
+    if (!trimmed || /^data:|^blob:|^#|^javascript:/i.test(trimmed)) return full;
+    return `url("${absolutizeUrl(trimmed, baseUrl)}")`;
+  });
+}
+
+function createRenderedImportSessionId() {
+  return `html-editor-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildRenderedSnapshotScript({ url, sessionId }) {
+  const payload = JSON.stringify({ url, sessionId });
+  return `(async () => {
+  const cfg = ${payload};
+  const clone = document.documentElement.cloneNode(true);
+  clone.querySelectorAll('script').forEach(el => el.remove());
+  clone.querySelectorAll('meta[http-equiv="refresh"]').forEach(el => el.remove());
+  clone.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+    });
+  });
+  const html = '<!DOCTYPE html>\\n' + clone.outerHTML;
+  const message = {
+    source: 'html-editor-rendered-import',
+    sessionId: cfg.sessionId,
+    url: cfg.url,
+    html
+  };
+  let delivered = false;
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(message, '*');
+      delivered = true;
+    }
+  } catch (err) {
+    console.warn('postMessage 回传失败', err);
+  }
+  const serialized = JSON.stringify(message);
+  try {
+    await navigator.clipboard.writeText(serialized);
+    console.log('HTML_EDITOR_RENDERED_SNAPSHOT=' + serialized);
+    alert(delivered
+      ? '渲染态快照已回传到编辑器，采集结果也已复制到剪贴板。'
+      : '自动回传失败，采集结果已复制到剪贴板。请回到编辑器粘贴到“登录态 / 前端渲染页回传结果”。');
+  } catch (err) {
+    console.log('HTML_EDITOR_RENDERED_SNAPSHOT=' + serialized);
+    alert(delivered
+      ? '渲染态快照已回传到编辑器；如果编辑器未收到，请从控制台复制 HTML_EDITOR_RENDERED_SNAPSHOT= 后面的内容。'
+      : '自动回传和剪贴板写入都失败了，请从控制台复制 HTML_EDITOR_RENDERED_SNAPSHOT= 后面的内容。');
+  }
+})();`;
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const helper = document.createElement('textarea');
+  helper.value = text;
+  helper.setAttribute('readonly', '');
+  helper.style.position = 'fixed';
+  helper.style.opacity = '0';
+  helper.style.pointerEvents = 'none';
+  document.body.appendChild(helper);
+  helper.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(helper);
+  if (!copied) {
+    throw new Error('浏览器不支持自动复制');
+  }
+  return true;
+}
+
+async function startRenderedImportFlow(url) {
+  const normalizedUrl = normalizeUrlInput(url);
+  if (!normalizedUrl) {
+    setUrlDialogStatus('请输入有效 URL');
+    return;
+  }
+
+  const sessionId = createRenderedImportSessionId();
+  state.renderedImportSessionId = sessionId;
+  const script = buildRenderedSnapshotScript({ url: normalizedUrl, sessionId });
+
+  try {
+    await copyTextToClipboard(script);
+  } catch (err) {
+    console.error(err);
+    setUrlDialogStatus('复制采集脚本失败，请检查浏览器剪贴板权限');
+    showToast('复制采集脚本失败');
+    return;
+  }
+
+  const popup = window.open(normalizedUrl, '_blank');
+  if (!popup) {
+    setUrlDialogStatus('浏览器拦截了新窗口，请允许弹窗后重试');
+    showToast('打开目标页失败，请允许弹窗');
+    return;
+  }
+
+  setUrlDialogStatus('已复制采集脚本并打开目标页：请在目标页完成登录/等待渲染后，把脚本粘到控制台执行');
+  showToast('采集脚本已复制，按提示在目标页控制台执行');
+}
+
+function tryParseRenderedImportPayload(raw) {
+  if (raw && typeof raw === 'object') {
+    if (raw.source !== 'html-editor-rendered-import' || !raw.url || !raw.html) {
+      throw new Error('回传结果格式不正确');
+    }
+    return raw;
+  }
+
+  const text = String(raw || '').trim();
+  if (!text) {
+    throw new Error('请先提供回传结果');
+  }
+
+  const normalized = text.startsWith('HTML_EDITOR_RENDERED_SNAPSHOT=')
+    ? text.slice('HTML_EDITOR_RENDERED_SNAPSHOT='.length).trim()
+    : text;
+  const parsed = JSON.parse(normalized);
+  if (!parsed || parsed.source !== 'html-editor-rendered-import' || !parsed.url || !parsed.html) {
+    throw new Error('回传结果格式不正确');
+  }
+  return parsed;
+}
+
+async function importRenderedSnapshotPayload(raw, options = {}) {
+  const payload = tryParseRenderedImportPayload(raw);
+  if (state.renderedImportSessionId && payload.sessionId && payload.sessionId !== state.renderedImportSessionId && !options.ignoreSession) {
+    throw new Error('这份回传结果不属于当前导入会话，请重新发起“渲染态导入”');
+  }
+
+  await importUrlSnapshot({ url: payload.url, html: payload.html });
+  state.renderedImportSessionId = '';
+}
+
+function normalizeFetchedHtml(html, sourceUrl) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  doc.querySelectorAll('script').forEach(el => el.remove());
+  doc.querySelectorAll('meta[http-equiv="refresh"]').forEach(el => el.remove());
+
+  doc.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value;
+
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        return;
+      }
+
+      if ((name === 'href' || name === 'src' || name === 'poster') && value) {
+        if (!/^data:|^blob:|^#|^javascript:/i.test(value)) {
+          el.setAttribute(attr.name, absolutizeUrl(value, sourceUrl));
+        }
+        return;
+      }
+
+      if (name === 'srcset') {
+        el.setAttribute(attr.name, rewriteSrcset(value, sourceUrl));
+        return;
+      }
+
+      if (name === 'style') {
+        el.setAttribute('style', rewriteCssUrls(value, sourceUrl));
+        return;
+      }
+    });
+
+    if (el.tagName === 'A') {
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+
+  doc.querySelectorAll('link[href]').forEach(link => {
+    const href = link.getAttribute('href');
+    if (!href || /^data:|^javascript:/i.test(href)) return;
+    link.setAttribute('href', absolutizeUrl(href, sourceUrl));
+  });
+
+  doc.querySelectorAll('style').forEach(style => {
+    style.textContent = rewriteCssUrls(style.textContent, sourceUrl);
+  });
+
+  if (!doc.querySelector('base')) {
+    const base = doc.createElement('base');
+    base.href = sourceUrl;
+    doc.head.prepend(base);
+  }
+
+  if (!doc.querySelector('meta[charset]')) {
+    const meta = doc.createElement('meta');
+    meta.setAttribute('charset', 'UTF-8');
+    doc.head.prepend(meta);
+  }
+
+  doc.title = doc.title || new URL(sourceUrl).hostname;
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
+async function importUrlSnapshot({ url, html }) {
+  const normalizedUrl = normalizeUrlInput(url);
+  if (!normalizedUrl) {
+    showToast('请输入有效 URL');
+    return;
+  }
+
+  state.currentFileHandle = null;
+  state.currentDirHandle = null;
+  state.currentFileName = `URL 快照 - ${new URL(normalizedUrl).hostname}`;
+  state.currentDirName = '';
+  state.currentSourceUrl = normalizedUrl;
+  state.currentSourceType = 'url';
+
+  try {
+    await clearStoredHandle(HANDLE_LAST_FILE_KEY);
+  } catch (err) {
+    console.warn('清理上次文件句柄失败', err);
+  }
+
+  persistFileMeta();
+  loadEditorContent(normalizeFetchedHtml(html, normalizedUrl));
+  closeUrlDialog(true);
+  showToast('URL 快照已导入');
+}
+
+async function fetchUrlSnapshot(url) {
+  const normalizedUrl = normalizeUrlInput(url);
+  if (!normalizedUrl) {
+    setUrlDialogStatus('请输入有效 URL');
+    return;
+  }
+
+  setUrlDialogLoading(true);
+  setUrlDialogStatus('正在抓取页面...');
+
+  try {
+    const response = await fetch(normalizedUrl, {
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      throw new Error(`抓取失败 (${response.status})`);
+    }
+
+    const html = await response.text();
+    await importUrlSnapshot({ url: normalizedUrl, html });
+  } catch (err) {
+    console.error(err);
+    setUrlDialogStatus('抓取失败：目标站可能限制跨域访问。可改用下方粘贴 HTML。');
+    showToast('URL 抓取失败，可尝试粘贴 HTML');
+  } finally {
+    setUrlDialogLoading(false);
+  }
+}
+
 btnUndo.addEventListener('click', () => {
   undoEdit();
 });
@@ -1467,13 +2365,96 @@ btnRedo.addEventListener('click', () => {
   redoEdit();
 });
 
-function loadEditorContent(html) {
+function loadEditorContent(html, options = {}) {
+  const { resetMediaAssets = true } = options;
+  if (resetMediaAssets) {
+    clearMediaAssetStore();
+  }
   state.recordHistoryOnLoad = true;
   initIframe(html);
   persistHtmlSnapshot(html);
   persistFileMeta();
   updateStatusPath();
+  statusInfo.textContent = state.currentSourceType === 'url'
+    ? 'URL 快照模式 — 可编辑快照 | 建议导出为新文件'
+    : 'Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式';
 }
+
+btnOpenUrl.addEventListener('click', () => {
+  openUrlDialog();
+});
+
+btnCloseUrlDialog.addEventListener('click', () => {
+  closeUrlDialog();
+});
+
+urlDialogBackdrop.addEventListener('mousedown', (e) => {
+  if (e.target === urlDialogBackdrop) {
+    closeUrlDialog();
+  }
+});
+
+btnFetchUrlSnapshot.addEventListener('click', async () => {
+  await fetchUrlSnapshot(urlInput.value);
+});
+
+btnOpenRenderedImport.addEventListener('click', async () => {
+  await startRenderedImportFlow(urlInput.value);
+});
+
+btnUseFallbackHtml.addEventListener('click', async () => {
+  const fallbackHtml = urlFallbackHtml.value.trim();
+  const normalizedUrl = normalizeUrlInput(urlInput.value);
+
+  if (!normalizedUrl) {
+    setUrlDialogStatus('请输入有效 URL');
+    return;
+  }
+  if (!fallbackHtml) {
+    setUrlDialogStatus('请先粘贴 HTML 源码');
+    return;
+  }
+
+  setUrlDialogStatus('正在使用粘贴 HTML 生成快照...');
+  await importUrlSnapshot({ url: normalizedUrl, html: fallbackHtml });
+});
+
+btnUseRenderedPayload.addEventListener('click', async () => {
+  try {
+    setUrlDialogStatus('正在导入渲染态快照...');
+    await importRenderedSnapshotPayload(urlRenderedPayload.value, { ignoreSession: true });
+  } catch (err) {
+    console.error(err);
+    setUrlDialogStatus(err.message || '回传结果导入失败');
+    showToast(err.message || '回传结果导入失败');
+  }
+});
+
+urlInput.addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    await fetchUrlSnapshot(urlInput.value);
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeUrlDialog();
+  }
+});
+
+window.addEventListener('message', async (event) => {
+  const data = event.data;
+  if (!data || data.source !== 'html-editor-rendered-import') return;
+
+  try {
+    urlRenderedPayload.value = JSON.stringify(data);
+    setUrlDialogStatus('已收到目标页回传，正在导入渲染态快照...');
+    await importRenderedSnapshotPayload(data);
+  } catch (err) {
+    console.error(err);
+    setUrlDialogStatus(err.message || '自动回传导入失败，请改用手动粘贴');
+    showToast(err.message || '自动回传导入失败');
+  }
+});
 
 function openHandleDatabase() {
   return new Promise((resolve, reject) => {
@@ -1552,6 +2533,8 @@ async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName 
   state.currentDirHandle = dirHandle || null;
   state.currentFileName = fileName || fileHandle?.name || '';
   state.currentDirName = dirName || dirHandle?.name || '';
+  state.currentSourceUrl = '';
+  state.currentSourceType = 'local';
   persistFileMeta();
   updateStatusPath();
 
@@ -1571,6 +2554,8 @@ async function restoreLastSession() {
   if (meta) {
     state.currentFileName = meta.fileName || '';
     state.currentDirName = meta.dirName || '';
+    state.currentSourceUrl = meta.sourceUrl || '';
+    state.currentSourceType = meta.sourceType || 'local';
     updateStatusPath();
   }
 
@@ -1600,6 +2585,12 @@ async function restoreLastSession() {
 
   const snapshot = readPersistedHtmlSnapshot();
   if (snapshot) {
+    if (!shouldPersistHtmlSnapshot(snapshot)) {
+      clearPersistedHtmlSnapshot();
+      state.skippedHeavySnapshotRestore = true;
+      return false;
+    }
+
     loadEditorContent(snapshot);
     if (state.currentFileName) {
       showToast(`已恢复上次内容: ${state.currentFileName}`);
@@ -1632,6 +2623,7 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('mouseup', () => {
+  state.selectionPointerDown = false;
   if (!gutterDragging) return;
   gutterDragging = false;
   gutter.classList.remove('dragging');
@@ -1659,7 +2651,6 @@ function initToolbarControls() {
   loadRecentColors();
   renderPresetColors();
   renderRecentColors();
-  renderBlockColorPresets();
   setColorDisplayValue(tbColor.value);
 }
 
@@ -1736,20 +2727,6 @@ function setColorDisplayValue(value) {
   highlightColorSwatches(normalized);
 }
 
-function mixHexColors(colorA, colorB, ratio = 0.5) {
-  const a = normalizeHexColor(colorA);
-  const b = normalizeHexColor(colorB);
-  if (!a || !b) return '';
-
-  const mix = (start, end) => {
-    const s = Number.parseInt(start, 16);
-    const e = Number.parseInt(end, 16);
-    return Math.round(s + (e - s) * ratio).toString(16).padStart(2, '0');
-  };
-
-  return `#${mix(a.slice(1, 3), b.slice(1, 3))}${mix(a.slice(3, 5), b.slice(3, 5))}${mix(a.slice(5, 7), b.slice(5, 7))}`;
-}
-
 function createColorSwatch(color, title) {
   const swatch = document.createElement('button');
   swatch.type = 'button';
@@ -1770,45 +2747,6 @@ function renderPresetColors() {
   tbPresetColors.innerHTML = '';
   PRESET_TEXT_COLORS.forEach(({ label, value }) => {
     tbPresetColors.appendChild(createColorSwatch(value, `${label}: ${value}`));
-  });
-}
-
-function createBlockColorSwatch(color, title, apply) {
-  const swatch = document.createElement('button');
-  swatch.type = 'button';
-  swatch.className = 'tb-swatch';
-  swatch.title = title;
-  swatch.style.background = color;
-  swatch.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    state.toolbarInteracting = true;
-    saveSelection();
-    apply(color);
-  });
-  return swatch;
-}
-
-function renderBlockColorPresets() {
-  tbBorderPresetColors.innerHTML = '';
-  tbBackgroundPresetColors.innerHTML = '';
-
-  PRESET_TEXT_COLORS.slice(0, 5).forEach(({ label, value }) => {
-    tbBorderPresetColors.appendChild(
-      createBlockColorSwatch(value, `边框颜色 ${label}: ${value}`, (color) => {
-        tbBorderColor.value = color;
-        applyBlockStyle({ borderColor: color });
-      })
-    );
-  });
-
-  const backgroundPresets = ['#ffffff', '#fff3e4', '#fef7d6', '#e9f7ef', '#e8f2ff'];
-  backgroundPresets.forEach((value, index) => {
-    tbBackgroundPresetColors.appendChild(
-      createBlockColorSwatch(value, `背景颜色 ${index + 1}: ${value}`, (color) => {
-        tbBackgroundColor.value = color;
-        applyBlockStyle({ backgroundColor: color });
-      })
-    );
   });
 }
 
@@ -1897,12 +2835,6 @@ function parseBlockBorderStyle(node) {
   return style && style !== 'hidden' ? style : 'none';
 }
 
-function parseBlockBorderColor(node) {
-  if (!state.iframeDoc || !node) return '#e8913a';
-  const color = normalizeHexColor(state.iframeDoc.defaultView.getComputedStyle(node).borderTopColor);
-  return color || '#e8913a';
-}
-
 function parseBlockBackgroundColor(node) {
   if (!state.iframeDoc || !node) return '#ffffff';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node).backgroundColor;
@@ -1949,20 +2881,17 @@ function syncBlockStyleControls(range) {
   [
     tbBorderStyle,
     tbBorderWidth,
-    tbBorderColor,
     tbBackgroundColor,
+    tbClearBackgroundColor,
     tbBorderRadius,
     tbPadding,
     tbMargin,
-    tbUseTextColorForBorder,
-    tbUseTextColorForBackground,
     tbClearBlockStyle,
   ].forEach(el => { el.disabled = !enabled; });
 
   if (!enabled) {
     tbBorderStyle.value = 'none';
     tbBorderWidth.value = '0';
-    tbBorderColor.value = '#e8913a';
     tbBackgroundColor.value = '#ffffff';
     tbBorderRadius.value = '0';
     tbPadding.value = '0';
@@ -1972,7 +2901,6 @@ function syncBlockStyleControls(range) {
 
   const borderStyle = parseBlockBorderStyle(target);
   const borderWidth = parseBlockBorderWidth(target);
-  const borderColor = parseBlockBorderColor(target);
   const backgroundColor = parseBlockBackgroundColor(target);
   const borderRadius = parseBlockRadius(target);
   const padding = parseBlockPadding(target);
@@ -1980,7 +2908,6 @@ function syncBlockStyleControls(range) {
 
   tbBorderStyle.value = ['none', 'solid', 'dashed', 'dotted'].includes(borderStyle) ? borderStyle : 'solid';
   tbBorderWidth.value = BLOCK_BORDER_WIDTH_PRESETS.includes(borderWidth) ? borderWidth : '2';
-  tbBorderColor.value = borderColor;
   tbBackgroundColor.value = backgroundColor;
   tbBorderRadius.value = BLOCK_RADIUS_PRESETS.includes(borderRadius) ? borderRadius : '8';
   tbPadding.value = BLOCK_SPACING_PRESETS.includes(padding) ? padding : '12';
@@ -2053,7 +2980,6 @@ function applyBlockStyle(patch = {}) {
   const style = target.style;
   const nextBorderStyle = patch.borderStyle ?? parseBlockBorderStyle(target);
   const nextBorderWidth = patch.borderWidth ?? parseBlockBorderWidth(target);
-  const normalizedBorderColor = patch.borderColor ? normalizeHexColor(patch.borderColor) : parseBlockBorderColor(target);
   const normalizedBackgroundColor = patch.backgroundColor ? normalizeHexColor(patch.backgroundColor) : parseBlockBackgroundColor(target);
   const nextRadius = patch.borderRadius ?? parseBlockRadius(target);
   const nextPadding = patch.padding ?? parseBlockPadding(target);
@@ -2065,11 +2991,7 @@ function applyBlockStyle(patch = {}) {
   } else {
     style.borderStyle = nextBorderStyle;
     style.borderWidth = `${nextBorderWidth}px`;
-    if (normalizedBorderColor) {
-      style.borderColor = normalizedBorderColor;
-    }
   }
-
   if ('backgroundColor' in patch) {
     style.backgroundColor = normalizedBackgroundColor || '';
   }
@@ -2181,9 +3103,13 @@ function resetToolbarTextControls() {
 
 function updateToolbar() {
   if (!state.iframeReady) {
-    floatingToolbar.classList.remove('visible');
-    floatingToolbar.style.visibility = '';
-    resetToolbarTextControls();
+    hideToolbarUI();
+    return;
+  }
+
+  const editableHost = ensureEditableHostFromSelection() || getEditableHost();
+  if (!editableHost) {
+    hideToolbarUI();
     return;
   }
 
@@ -2193,26 +3119,22 @@ function updateToolbar() {
   const shouldUseLiveRange = (
     liveRange &&
     !sel.isCollapsed &&
-    state.iframeBody.contains(sel.anchorNode)
+    editableHost.contains(sel.anchorNode)
   );
   const range = shouldUseLiveRange ? liveRange : (
     state.toolbarInteracting ? state.savedTextRange : null
   );
 
   if (!range) {
-    floatingToolbar.classList.remove('visible');
-    floatingToolbar.style.visibility = '';
+    hideToolbarUI();
     if (!state.toolbarInteracting) state.savedTextRange = null;
-    clearSelectedBlocks();
-    resetToolbarTextControls();
     return;
   }
 
   saveSelection(range);
   const rect = range.getBoundingClientRect();
   if (!rect || (rect.width === 0 && rect.height === 0)) {
-    floatingToolbar.classList.remove('visible');
-    floatingToolbar.style.visibility = '';
+    hideToolbarUI(false);
     return;
   }
 
@@ -2223,6 +3145,7 @@ function updateToolbar() {
   const block = node.closest('h1,h2,h3,h4,p,div,li,td,th,blockquote,span') || node;
   if (block && block !== state.iframeBody) {
     block.classList.add('selected-block');
+    state.selectedBlock = block;
   }
 
   // Position toolbar above selection, accounting for the iframe offset
@@ -2233,11 +3156,11 @@ function updateToolbar() {
   const toolbarW = toolbarRect.width || 280;
   const toolbarH = toolbarRect.height || 42;
 
-  let top = iframeRect.top + rect.top - toolbarH - 8;
+  let top = iframeRect.top + rect.top - toolbarH - 18;
   let left = iframeRect.left + rect.left + rect.width / 2;
 
   // Clamp
-  if (top < 56) top = iframeRect.top + rect.bottom + 8;
+  if (top < 56) top = iframeRect.top + rect.bottom + 18;
   top = Math.min(window.innerHeight - toolbarH - 8, top);
   left = Math.max(toolbarW / 2 + 8, left);
   left = Math.min(window.innerWidth - toolbarW / 2 - 8, left);
@@ -2258,8 +3181,9 @@ function updateToolbar() {
 }
 
 function clearSelectedBlocks() {
-  if (state.iframeBody) {
-    state.iframeBody.querySelectorAll('.selected-block').forEach(el => el.classList.remove('selected-block'));
+  if (state.selectedBlock) {
+    state.selectedBlock.classList.remove('selected-block');
+    state.selectedBlock = null;
   }
 }
 
@@ -2362,13 +3286,11 @@ tbBlockStyleToggle.addEventListener('mousedown', (e) => {
 [
   tbBorderStyle,
   tbBorderWidth,
-  tbBorderColor,
   tbBackgroundColor,
+  tbClearBackgroundColor,
   tbBorderRadius,
   tbPadding,
   tbMargin,
-  tbUseTextColorForBorder,
-  tbUseTextColorForBackground,
   tbClearBlockStyle,
 ].forEach(el => {
   el.addEventListener('mousedown', () => {
@@ -2393,13 +3315,14 @@ tbBorderWidth.addEventListener('change', () => {
   finishToolbarInteraction();
 });
 
-tbBorderColor.addEventListener('input', () => {
-  applyBlockStyle({ borderColor: tbBorderColor.value });
+tbBackgroundColor.addEventListener('input', () => {
+  applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
   finishToolbarInteraction();
 });
 
-tbBackgroundColor.addEventListener('input', () => {
-  applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
+tbClearBackgroundColor.addEventListener('click', (e) => {
+  e.preventDefault();
+  applyBlockStyle({ backgroundColor: '' });
   finishToolbarInteraction();
 });
 
@@ -2418,24 +3341,6 @@ tbMargin.addEventListener('change', () => {
   finishToolbarInteraction();
 });
 
-tbUseTextColorForBorder.addEventListener('click', (e) => {
-  e.preventDefault();
-  const color = normalizeHexColor(tbColor.value);
-  if (!color) return;
-  tbBorderColor.value = color;
-  applyBlockStyle({ borderColor: color });
-  finishToolbarInteraction();
-});
-
-tbUseTextColorForBackground.addEventListener('click', (e) => {
-  e.preventDefault();
-  const color = normalizeHexColor(tbColor.value);
-  if (!color) return;
-  tbBackgroundColor.value = mixHexColors(color, '#ffffff', 0.82) || '#fff3e4';
-  applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
-  finishToolbarInteraction();
-});
-
 tbClearBlockStyle.addEventListener('click', (e) => {
   e.preventDefault();
   applyBlockStyle({ clear: true });
@@ -2449,13 +3354,15 @@ tbBlockPanel.addEventListener('mousedown', () => {
 // ---- 选区保存/恢复 ----
 function saveSelection(range = null) {
   if (!state.iframeDoc || !state.iframeBody) return false;
+  const host = getEditableHost();
+  if (!host) return false;
   const sel = state.iframeDoc.getSelection();
   const nextRange = range || (sel.rangeCount > 0 ? sel.getRangeAt(0) : null);
-  if (!nextRange || nextRange.collapsed) return false;
+  if (!nextRange) return false;
 
   let node = nextRange.commonAncestorContainer;
   if (node.nodeType === 3) node = node.parentNode;
-  if (!node || !state.iframeBody.contains(node)) return false;
+  if (!node || !host.contains(node)) return false;
 
   state.savedTextRange = nextRange.cloneRange();
   return true;
@@ -2463,12 +3370,14 @@ function saveSelection(range = null) {
 
 function restoreSelection() {
   if (!state.iframeDoc || !state.savedTextRange || !state.iframeBody) return false;
+  const host = getEditableHost();
+  if (!host) return false;
 
   let node = state.savedTextRange.commonAncestorContainer;
   if (node.nodeType === 3) node = node.parentNode;
-  if (!node || !state.iframeBody.contains(node)) return false;
+  if (!node || !host.contains(node)) return false;
 
-  state.iframeBody.focus();
+  host.focus();
   try { state.iframeDoc.defaultView.focus(); } catch (e) {}
   const sel = state.iframeDoc.getSelection();
   sel.removeAllRanges();
@@ -2479,6 +3388,8 @@ function restoreSelection() {
 
 function restoreSelectionAroundNodes(firstNode, lastNode) {
   if (!state.iframeDoc || !firstNode || !lastNode || !state.iframeBody) return false;
+  const host = getEditableHost();
+  if (!host) return false;
 
   const doc = state.iframeDoc;
   const range = doc.createRange();
@@ -2489,7 +3400,7 @@ function restoreSelectionAroundNodes(firstNode, lastNode) {
   sel.removeAllRanges();
   sel.addRange(range);
 
-  state.iframeBody.focus();
+  host.focus();
   try { doc.defaultView.focus(); } catch (e) {}
   saveSelection(range);
   return true;
@@ -2497,8 +3408,10 @@ function restoreSelectionAroundNodes(firstNode, lastNode) {
 
 function execIframeCmd(cmd, value) {
   if (!state.iframeDoc) return;
+  const host = getEditableHost();
+  if (!host) return;
   state.iframeDoc.execCommand(cmd, false, value || null);
-  state.iframeBody.focus();
+  host.focus();
   saveSelection();
   recordHistorySnapshot();
   setTimeout(updateToolbar, 50);
@@ -2615,46 +3528,50 @@ previewPane.addEventListener('mousedown', (e) => {
    ============================================= */
 function selectMedia(el, type) {
   if (!state.iframeDoc) return;
-  deselectMedia();
+  withTransientIframeMutationPause(() => {
+    deselectMedia();
 
-  el.classList.add('selected-media');
+    el.classList.add('selected-media');
 
-  // Wrap in media-wrapper
-  let wrapper = el.parentElement;
-  if (!wrapper || !wrapper.classList.contains('media-wrapper')) {
-    wrapper = state.iframeDoc.createElement('span');
-    wrapper.className = 'media-wrapper';
-    wrapper.setAttribute('contenteditable', 'false');
-    wrapper.style.display = 'inline-block';
-    el.parentNode.insertBefore(wrapper, el);
-    wrapper.appendChild(el);
-  } else {
-    wrapper.setAttribute('contenteditable', 'false');
-  }
+    // Wrap in media-wrapper
+    let wrapper = el.parentElement;
+    if (!wrapper || !wrapper.classList.contains('media-wrapper')) {
+      wrapper = state.iframeDoc.createElement('span');
+      wrapper.className = 'media-wrapper';
+      wrapper.setAttribute('contenteditable', 'false');
+      wrapper.style.display = 'inline-block';
+      el.parentNode.insertBefore(wrapper, el);
+      wrapper.appendChild(el);
+    } else {
+      wrapper.setAttribute('contenteditable', 'false');
+    }
 
-  addResizeHandles(wrapper);
-  addReplaceButton(wrapper, type);
+    addResizeHandles(wrapper);
+    addReplaceButton(wrapper, type);
 
-  state.selectedMedia = el;
-  state.mediaWrapper = wrapper;
+    state.selectedMedia = el;
+    state.mediaWrapper = wrapper;
+  });
 }
 
 function deselectMedia() {
-  if (state.selectedMedia) {
-    state.selectedMedia.classList.remove('selected-media');
-  }
-  if (state.mediaWrapper) {
-    removeResizeHandles(state.mediaWrapper);
-    removeReplaceButton(state.mediaWrapper);
-    // Unwrap
-    const media = state.mediaWrapper.querySelector('img, video');
-    if (media && state.mediaWrapper.parentElement) {
-      state.mediaWrapper.parentElement.insertBefore(media, state.mediaWrapper);
-      state.mediaWrapper.remove();
+  withTransientIframeMutationPause(() => {
+    if (state.selectedMedia) {
+      state.selectedMedia.classList.remove('selected-media');
     }
-  }
-  state.selectedMedia = null;
-  state.mediaWrapper = null;
+    if (state.mediaWrapper) {
+      removeResizeHandles(state.mediaWrapper);
+      removeReplaceButton(state.mediaWrapper);
+      // Unwrap
+      const media = state.mediaWrapper.querySelector('img, video');
+      if (media && state.mediaWrapper.parentElement) {
+        state.mediaWrapper.parentElement.insertBefore(media, state.mediaWrapper);
+        state.mediaWrapper.remove();
+      }
+    }
+    state.selectedMedia = null;
+    state.mediaWrapper = null;
+  });
 }
 
 function addResizeHandles(wrapper) {
@@ -2775,73 +3692,176 @@ function triggerVideoReplace(videoEl) {
   $('#fileInputVideo').click();
 }
 
-$('#fileInputImage').addEventListener('change', function () {
-  const file = this.files[0];
-  if (!file) return;
-  const url = URL.createObjectURL(file);
-  const target = state.pendingImageTarget;
+function createMediaAssetId() {
+  const id = `editor-media-${state.nextMediaAssetId}`;
+  state.nextMediaAssetId += 1;
+  return id;
+}
 
-  if (target && target.tagName === 'IMG') {
-    const oldUrl = target.src;
-    target.src = url;
-    if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
-    target.style.width = '';
-    target.style.height = '';
-    showToast('图片已替换');
-  } else if (target && state.iframeDoc) {
-    const img = state.iframeDoc.createElement('img');
-    img.src = url;
-    img.alt = file.name;
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'cover';
-    // Replace placeholder content
-    const placeholder = target.querySelector('.placeholder-media');
-    if (placeholder) {
-      placeholder.replaceWith(img);
-    } else {
-      target.innerHTML = '';
-      target.appendChild(img);
+function clearMediaAssetStore() {
+  Object.values(state.mediaAssetStore).forEach(asset => {
+    if (asset?.previewUrl?.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(asset.previewUrl);
+      } catch (err) {}
     }
-    showToast('图片已插入');
+  });
+  state.mediaAssetStore = {};
+}
+
+function registerMediaAsset(el, kind, file, previewUrl) {
+  const assetId = createMediaAssetId();
+  const asset = {
+    kind,
+    file,
+    fileName: file?.name || '',
+    previewUrl,
+    dataUrl: '',
+  };
+  state.mediaAssetStore[assetId] = asset;
+  el.setAttribute('data-editor-media-id', assetId);
+  return asset;
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function resolveMediaAssetDataURL(asset) {
+  if (!asset?.file) return '';
+  if (asset.dataUrl) return asset.dataUrl;
+  asset.dataUrl = await readFileAsDataURL(asset.file);
+  return asset.dataUrl;
+}
+
+function prepareImageElementSource(img, src, fileName = '') {
+  if (!img || !src) return;
+  img.src = src;
+  img.removeAttribute('srcset');
+  img.removeAttribute('sizes');
+
+  const picture = img.parentElement?.tagName === 'PICTURE' ? img.parentElement : null;
+  if (picture) {
+    picture.querySelectorAll('source').forEach(source => source.remove());
   }
 
-  this.value = '';
-  state.pendingImageTarget = null;
+  if (fileName && !img.getAttribute('alt')) {
+    img.alt = fileName;
+  }
+}
+
+function prepareVideoElementSource(video, src) {
+  if (!video || !src) return;
+  video.removeAttribute('src');
+  video.querySelectorAll('source').forEach(source => source.remove());
+  video.src = src;
+}
+
+async function embedMediaAssetsIntoClone(clone) {
+  const mediaNodes = clone.querySelectorAll('[data-editor-media-id]');
+  for (const node of mediaNodes) {
+    const assetId = node.getAttribute('data-editor-media-id');
+    const asset = assetId ? state.mediaAssetStore[assetId] : null;
+    if (asset?.kind === 'image') {
+      const dataUrl = await resolveMediaAssetDataURL(asset);
+      if (dataUrl) {
+        prepareImageElementSource(node, dataUrl, asset.fileName);
+      }
+    } else if (asset?.kind === 'video') {
+      const dataUrl = await resolveMediaAssetDataURL(asset);
+      if (dataUrl) {
+        prepareVideoElementSource(node, dataUrl);
+      }
+    }
+    node.removeAttribute('data-editor-media-id');
+  }
+}
+
+$('#fileInputImage').addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+
+  try {
+    const previewUrl = URL.createObjectURL(file);
+    const target = state.pendingImageTarget;
+
+    if (target && target.tagName === 'IMG') {
+      const asset = registerMediaAsset(target, 'image', file, previewUrl);
+      prepareImageElementSource(target, asset.previewUrl, asset.fileName);
+      target.style.width = '';
+      target.style.height = '';
+      showToast('图片已替换');
+    } else if (target && state.iframeDoc) {
+      const img = state.iframeDoc.createElement('img');
+      const asset = registerMediaAsset(img, 'image', file, previewUrl);
+      prepareImageElementSource(img, asset.previewUrl, asset.fileName);
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      // Replace placeholder content
+      const placeholder = target.querySelector('.placeholder-media');
+      if (placeholder) {
+        placeholder.replaceWith(img);
+      } else {
+        target.innerHTML = '';
+        target.appendChild(img);
+      }
+      showToast('图片已插入');
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('图片处理失败: ' + err.message);
+  } finally {
+    this.value = '';
+    state.pendingImageTarget = null;
+  }
 });
 
-$('#fileInputVideo').addEventListener('change', function () {
+$('#fileInputVideo').addEventListener('change', async function () {
   const file = this.files[0];
   if (!file) return;
-  const url = URL.createObjectURL(file);
-  const target = state.pendingVideoTarget;
 
-  if (target && target.tagName === 'VIDEO') {
-    const oldUrl = target.src;
-    target.src = url;
-    if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
-    target.style.width = '';
-    target.style.height = '';
-    showToast('视频已替换');
-  } else if (target && state.iframeDoc) {
-    const video = state.iframeDoc.createElement('video');
-    video.src = url;
-    video.controls = true;
-    video.style.width = '100%';
-    video.style.height = '100%';
-    video.style.objectFit = 'cover';
-    const placeholder = target.querySelector('.placeholder-media');
-    if (placeholder) {
-      placeholder.replaceWith(video);
-    } else {
-      target.innerHTML = '';
-      target.appendChild(video);
+  try {
+    const previewUrl = URL.createObjectURL(file);
+    const target = state.pendingVideoTarget;
+
+    if (target && target.tagName === 'VIDEO') {
+      const asset = registerMediaAsset(target, 'video', file, previewUrl);
+      prepareVideoElementSource(target, asset.previewUrl);
+      target.load?.();
+      target.style.width = '';
+      target.style.height = '';
+      showToast('视频已替换');
+    } else if (target && state.iframeDoc) {
+      const video = state.iframeDoc.createElement('video');
+      const asset = registerMediaAsset(video, 'video', file, previewUrl);
+      prepareVideoElementSource(video, asset.previewUrl);
+      video.controls = true;
+      video.style.width = '100%';
+      video.style.height = '100%';
+      video.style.objectFit = 'cover';
+      video.load?.();
+      const placeholder = target.querySelector('.placeholder-media');
+      if (placeholder) {
+        placeholder.replaceWith(video);
+      } else {
+        target.innerHTML = '';
+        target.appendChild(video);
+      }
+      showToast('视频已插入');
     }
-    showToast('视频已插入');
+  } catch (err) {
+    console.error(err);
+    showToast('视频处理失败: ' + err.message);
+  } finally {
+    this.value = '';
+    state.pendingVideoTarget = null;
   }
-
-  this.value = '';
-  state.pendingVideoTarget = null;
 });
 
 /* =============================================
@@ -2940,7 +3960,7 @@ $('#btnOverwrite').addEventListener('click', async () => {
 });
 
 async function overwriteFile() {
-  const html = getCurrentEditorHTML();
+  const html = await getExportHTML();
   if (state.currentFileHandle && state.currentFileHandle.createWritable) {
     try {
       const granted = await requestHandlePermission(state.currentFileHandle, 'readwrite');
@@ -2951,26 +3971,29 @@ async function overwriteFile() {
       const writable = await state.currentFileHandle.createWritable();
       await writable.write(html);
       await writable.close();
-      persistHtmlSnapshot(html);
+      persistHtmlSnapshot();
       showToast('已覆盖源文件');
     } catch (err) {
       showToast('覆盖失败: ' + err.message);
     }
   } else {
     downloadFile('index.html', html);
-    persistHtmlSnapshot(html);
+    persistHtmlSnapshot();
     showToast('已导出（无源文件引用，使用下载替代）');
   }
 }
 
 // Export new file
 $('#btnExport').addEventListener('click', async () => {
-  const html = getCurrentEditorHTML();
+  const html = await getExportHTML();
+  const suggestedName = state.currentSourceType === 'url' && state.currentSourceUrl
+    ? `${new URL(state.currentSourceUrl).hostname.replace(/[^\w.-]+/g, '_')}.html`
+    : 'exported.html';
 
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: 'exported.html',
+        suggestedName,
         types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
       });
       const writable = await handle.createWritable();
@@ -2979,11 +4002,11 @@ $('#btnExport').addEventListener('click', async () => {
       showToast('文件已导出');
     } catch (err) {
       if (err.name !== 'AbortError') {
-        downloadFile('exported.html', html);
+        downloadFile(suggestedName, html);
       }
     }
   } else {
-    downloadFile('exported.html', html);
+    downloadFile(suggestedName, html);
     showToast('文件已导出');
   }
 });
@@ -3052,6 +4075,9 @@ async function bootstrapApp() {
   const restored = await restoreLastSession();
   if (!restored) {
     initIframe();
+    if (state.skippedHeavySnapshotRestore) {
+      showToast('已跳过恢复大型媒体快照，避免刷新后卡顿');
+    }
   }
 }
 </script>
