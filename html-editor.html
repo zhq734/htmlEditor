@@ -1,0 +1,3060 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML Editor</title>
+<style>
+/* =============================================
+   CSS Variables — Dark Tool Theme
+   ============================================= */
+:root {
+  --bg: #1e1e1e;
+  --surface: #252526;
+  --surface2: #2d2d2d;
+  --surface3: #333333;
+  --surface4: #3c3c3c;
+  --fg: #cccccc;
+  --fg-bright: #e8e8e8;
+  --muted: #8b8b8b;
+  --border: #3e3e3e;
+  --border-light: #4a4a4a;
+  --accent: #e8913a;
+  --accent-hover: #f0a050;
+  --accent-soft: rgba(232,145,58,0.15);
+  --blue: #4fc1ff;
+  --green: #6a9955;
+  --red: #f44747;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, Menlo, monospace;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --transition: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* =============================================
+   Reset & Base
+   ============================================= */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* =============================================
+   Menu Bar
+   ============================================= */
+.menu-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+.menu-bar__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-bright);
+  letter-spacing: -0.01em;
+}
+.menu-bar__logo {
+  width: 22px; height: 22px;
+  border-radius: var(--radius-xs);
+  background: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: #fff; font-weight: 700;
+}
+.menu-bar__actions {
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+/* =============================================
+   Buttons
+   ============================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.btn:hover { background: var(--surface3); border-color: var(--border-light); }
+.btn:active { background: var(--surface4); }
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:disabled:hover {
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+.btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn--icon { padding: 6px 10px; }
+.btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* =============================================
+   Hint Bar
+   ============================================= */
+.hint-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.hint-bar__mode {
+  display: flex;
+  gap: 2px;
+  background: var(--surface2);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.mode-btn {
+  padding: 4px 14px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.mode-btn:hover:not(.active) { color: var(--fg); }
+.hint-bar__tip {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.hint-bar__tip span.dot { color: var(--accent); }
+
+/* =============================================
+   Editor Container
+   ============================================= */
+.editor-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+.editor-pane {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+.editor-pane--source {
+  display: none;
+  border-left: 1px solid var(--border);
+  background: #1a1a1a;
+}
+.editor-container.split .editor-pane--source { display: flex; flex-direction: column; }
+.editor-container.split .gutter { display: flex; }
+.editor-container.edit-mode .editor-pane--preview { display: none; }
+.editor-container.edit-mode .editor-pane--source {
+  display: flex; flex-direction: column;
+  border-left: none;
+}
+.editor-container.edit-mode .gutter { display: none; }
+
+/* =============================================
+   Gutter (resizable divider)
+   ============================================= */
+.gutter {
+  display: none;
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background var(--transition);
+  position: relative;
+}
+.gutter:hover, .gutter.dragging { background: var(--accent); }
+.gutter::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px; height: 24px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+.gutter:hover::after, .gutter.dragging::after { background: #fff; }
+
+/* =============================================
+   Preview Iframe
+   ============================================= */
+.preview-iframe {
+  width: 100%; height: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* =============================================
+   Source Code View
+   ============================================= */
+.source-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--surface2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 1px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.source-area {
+  flex: 1;
+  width: 100%;
+  padding: 20px 24px;
+  background: #1a1a1a;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  border: none;
+  outline: none;
+  resize: none;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* =============================================
+   Floating Toolbar
+   ============================================= */
+.floating-toolbar {
+  position: fixed;
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  z-index: 1000;
+  transform: translateX(-50%);
+}
+.floating-toolbar.visible { display: flex; }
+.floating-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 4px;
+}
+.floating-toolbar__group + .floating-toolbar__group {
+  border-left: 1px solid var(--border);
+}
+.tb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.tb-btn:hover { background: var(--surface3); }
+.tb-btn.active { background: var(--accent-soft); color: var(--accent); }
+.tb-btn--bold { font-weight: 700; }
+.tb-btn--italic { font-style: italic; }
+.tb-select {
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  outline: none;
+}
+.tb-select:hover { background: var(--surface3); }
+.tb-select:focus { background: var(--surface3); }
+.tb-input {
+  width: 68px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  outline: none;
+}
+.tb-input:hover,
+.tb-input:focus { background: var(--surface3); }
+.tb-input::placeholder { color: var(--muted); }
+.tb-color {
+  width: 26px; height: 26px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  background: var(--fg);
+}
+.tb-color::-webkit-color-swatch-wrapper { padding: 0; }
+.tb-color::-webkit-color-swatch { border: none; border-radius: 50%; }
+.floating-toolbar__group--color { gap: 8px; }
+.tb-color-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tb-color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tb-color-label {
+  width: 26px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.tb-swatches {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tb-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.tb-swatch:hover {
+  transform: scale(1.08);
+  border-color: #fff;
+}
+.tb-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.tb-swatch--empty {
+  background: transparent !important;
+  border-style: dashed;
+  cursor: default;
+  opacity: 0.45;
+}
+.tb-swatch--empty:hover {
+  transform: none;
+  border-color: var(--border-light);
+}
+.tb-btn--wide {
+  width: auto;
+  padding: 0 10px;
+}
+.tb-select--compact {
+  min-width: 72px;
+}
+.tb-block-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 320px;
+  max-width: min(92vw, 360px);
+  padding: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  transform: translateX(calc(-50% + var(--panel-shift, 0px)));
+  z-index: 1001;
+}
+.tb-block-panel.visible { display: flex; }
+.tb-block-panel.upward {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+.tb-block-panel__row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.tb-block-panel__row--triple {
+  grid-template-columns: 42px minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+.tb-block-panel__row--double {
+  grid-template-columns: 42px auto minmax(0, 1fr);
+}
+.tb-block-panel__row--compact {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+}
+.tb-block-panel__label {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+.tb-block-panel__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tb-block-panel__hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* =============================================
+   Status Bar
+   ============================================= */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 14px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.status-bar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.status-bar__right { opacity: 0.85; }
+.status-bar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 500px;
+  opacity: 0.9;
+}
+
+/* =============================================
+   Iframe Content — Default Welcome
+   ============================================= */
+/* Injected into iframe via srcdoc */
+
+/* =============================================
+   Toast
+   ============================================= */
+.toast {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  background: var(--surface3);
+  color: var(--fg-bright);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  z-index: 2000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.toast.show { opacity: 1; }
+
+/* =============================================
+   Scrollbar
+   ============================================= */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface4); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* =============================================
+   Responsive
+   ============================================= */
+@media (max-width: 900px) {
+  .menu-bar__actions .btn span { display: none; }
+  .floating-toolbar { flex-wrap: wrap; max-width: 90vw; }
+}
+</style>
+</head>
+<body>
+
+<!-- =============================================
+     Menu Bar
+     ============================================= -->
+<header class="menu-bar">
+  <div class="menu-bar__title">
+    <div class="menu-bar__logo">&lt;/&gt;</div>
+    <span>HTML Editor</span>
+  </div>
+  <div class="menu-bar__actions">
+    <button class="btn" id="btnOpenFolder" title="打开文件夹">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
+      <span>打开文件夹</span>
+    </button>
+    <button class="btn" id="btnSource" title="源码分栏">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M2 2.5A1.5 1.5 0 0 1 3.5 1h2.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 0 9.62 3.5H12.5A1.5 1.5 0 0 1 14 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-10zm2 0v10a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V5a.5.5 0 0 0-.5-.5H9.621a2.5 2.5 0 0 1-1.768-.732L6.44 2.354A.5.5 0 0 0 6.086 2.2H3.5a.5.5 0 0 0-.5.5z"/></svg>
+      <span>源码</span>
+    </button>
+    <button class="btn" id="btnOverwrite" title="覆盖源文件">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM2.5 8a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0zm6.354-1.146l-2.5 2.5a.5.5 0 0 1-.708 0l-1-1a.5.5 0 1 1 .708-.708l.646.647 2.146-2.147a.5.5 0 0 1 .708.708z"/></svg>
+      <span>覆盖源文件</span>
+    </button>
+    <button class="btn btn--primary" id="btnExport" title="导出新文件">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 1.5a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 1 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 9.793V2a.5.5 0 0 1 .5-.5zM2 12.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/></svg>
+      <span>导出新文件</span>
+    </button>
+    <button class="btn" id="btnUndo" title="回退">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.854 2.146a.5.5 0 0 1 0 .708L4.707 5H9.5A4.5 4.5 0 0 1 14 9.5v1a.5.5 0 0 1-1 0v-1A3.5 3.5 0 0 0 9.5 6H4.707l2.147 2.146a.5.5 0 1 1-.708.708l-3-3a.498.498 0 0 1-.108-.163.499.499 0 0 1 0-.382.498.498 0 0 1 .108-.163l3-3a.5.5 0 0 1 .708 0z"/></svg>
+      <span>回退</span>
+    </button>
+    <button class="btn" id="btnRedo" title="前进">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.146 2.146a.5.5 0 0 0 0 .708L11.293 5H6.5A4.5 4.5 0 0 0 2 9.5v1a.5.5 0 0 0 1 0v-1A3.5 3.5 0 0 1 6.5 6h4.793L9.146 8.146a.5.5 0 1 0 .708.708l3-3a.498.498 0 0 0 .108-.163.499.499 0 0 0 0-.382.498.498 0 0 0-.108-.163l-3-3a.5.5 0 0 0-.708 0z"/></svg>
+      <span>前进</span>
+    </button>
+  </div>
+</header>
+
+<!-- =============================================
+     Hint Bar
+     ============================================= -->
+<div class="hint-bar">
+  <div class="hint-bar__mode">
+    <button class="mode-btn active" data-mode="preview" id="modePreview">预览</button>
+    <button class="mode-btn" data-mode="edit" id="modeEdit">编辑</button>
+  </div>
+  <div class="hint-bar__tip">
+    <span class="dot">&#x25CF;</span> 点击文字可直接编辑
+    <span class="dot" style="margin-left:12px;">&#x25CF;</span> 点击图片/视频可替换
+  </div>
+</div>
+
+<!-- =============================================
+     Editor Container
+     ============================================= -->
+<div class="editor-container" id="editorContainer">
+  <!-- Preview Pane -->
+  <div class="editor-pane editor-pane--preview" id="previewPane">
+    <iframe class="preview-iframe" id="previewIframe" sandbox="allow-scripts allow-same-origin"></iframe>
+  </div>
+
+  <!-- Gutter -->
+  <div class="gutter" id="gutter"></div>
+
+  <!-- Source Pane -->
+  <div class="editor-pane editor-pane--source" id="sourcePane">
+    <div class="source-panel-header">
+      <span>&lt;/&gt; HTML 源码</span>
+      <span style="font-size:10px;color:var(--muted)">实时同步</span>
+    </div>
+    <textarea class="source-area" id="sourceArea" spellcheck="false"></textarea>
+  </div>
+</div>
+
+<!-- =============================================
+     Floating Toolbar
+     ============================================= -->
+<div class="floating-toolbar" id="floatingToolbar">
+  <div class="floating-toolbar__group">
+    <input class="tb-input" id="tbFontSize" type="text" inputmode="decimal" list="tbFontSizeOptions" placeholder="字号" title="字号" autocomplete="off" />
+    <datalist id="tbFontSizeOptions"></datalist>
+  </div>
+  <div class="floating-toolbar__group">
+    <select class="tb-select" id="tbLineHeight" title="行高">
+      <option value="">行高</option>
+    </select>
+  </div>
+  <div class="floating-toolbar__group">
+    <button class="tb-btn" id="tbFontDown" title="缩小字号">A<sup>&#8722;</sup></button>
+    <button class="tb-btn" id="tbFontUp" title="放大字号">A<sup>+</sup></button>
+  </div>
+  <div class="floating-toolbar__group floating-toolbar__group--color">
+    <div class="tb-color-panel">
+      <div class="tb-color-row">
+        <span class="tb-color-label">常用</span>
+        <div class="tb-swatches" id="tbPresetColors"></div>
+      </div>
+      <div class="tb-color-row">
+        <span class="tb-color-label">历史</span>
+        <div class="tb-swatches" id="tbRecentColors"></div>
+      </div>
+    </div>
+    <input type="color" class="tb-color" id="tbColor" value="#111111" title="文字颜色" />
+  </div>
+  <div class="floating-toolbar__group">
+    <button class="tb-btn tb-btn--bold" id="tbBold" title="加粗">B</button>
+    <button class="tb-btn tb-btn--italic" id="tbItalic" title="斜体">I</button>
+  </div>
+  <div class="floating-toolbar__group" style="position:relative">
+    <button class="tb-btn tb-btn--wide" id="tbBlockStyleToggle" title="块样式">块样式</button>
+    <div class="tb-block-panel" id="tbBlockPanel">
+      <div class="tb-block-panel__row tb-block-panel__row--double">
+        <span class="tb-block-panel__label">边框</span>
+        <select class="tb-select tb-select--compact" id="tbBorderStyle" title="边框样式">
+          <option value="none">无</option>
+          <option value="solid">实线</option>
+          <option value="dashed">虚线</option>
+          <option value="dotted">点线</option>
+        </select>
+        <select class="tb-select tb-select--compact" id="tbBorderWidth" title="边框宽度">
+          <option value="0">0px</option>
+          <option value="1">1px</option>
+          <option value="2">2px</option>
+          <option value="4">4px</option>
+          <option value="8">8px</option>
+        </select>
+      </div>
+      <div class="tb-block-panel__row tb-block-panel__row--triple">
+        <span class="tb-block-panel__label">颜色</span>
+        <input type="color" class="tb-color" id="tbBorderColor" value="#e8913a" title="边框颜色" />
+        <div class="tb-swatches" id="tbBorderPresetColors"></div>
+        <button class="tb-btn tb-btn--wide" id="tbUseTextColorForBorder" title="使用文字颜色">文字色</button>
+      </div>
+      <div class="tb-block-panel__row tb-block-panel__row--triple">
+        <span class="tb-block-panel__label">背景</span>
+        <input type="color" class="tb-color" id="tbBackgroundColor" value="#fff3e4" title="背景颜色" />
+        <div class="tb-swatches" id="tbBackgroundPresetColors"></div>
+        <button class="tb-btn tb-btn--wide" id="tbUseTextColorForBackground" title="使用文字颜色浅色版">跟随</button>
+      </div>
+      <div class="tb-block-panel__row">
+        <span class="tb-block-panel__label">圆角</span>
+        <div class="tb-block-panel__controls">
+          <select class="tb-select tb-select--compact" id="tbBorderRadius" title="圆角">
+            <option value="0">0px</option>
+            <option value="4">4px</option>
+            <option value="8">8px</option>
+            <option value="12">12px</option>
+            <option value="16">16px</option>
+          </select>
+          <button class="tb-btn tb-btn--wide" id="tbClearBlockStyle" title="清除块样式">清除样式</button>
+        </div>
+      </div>
+      <div class="tb-block-panel__row tb-block-panel__row--double">
+        <span class="tb-block-panel__label">间距</span>
+        <select class="tb-select tb-select--compact" id="tbPadding" title="内边距">
+          <option value="0">内 0px</option>
+          <option value="8">内 8px</option>
+          <option value="12">内 12px</option>
+          <option value="16">内 16px</option>
+          <option value="24">内 24px</option>
+        </select>
+        <select class="tb-select tb-select--compact" id="tbMargin" title="外边距">
+          <option value="0">外 0px</option>
+          <option value="8">外 8px</option>
+          <option value="12">外 12px</option>
+          <option value="16">外 16px</option>
+          <option value="24">外 24px</option>
+        </select>
+      </div>
+      <div class="tb-block-panel__hint">作用于当前选中的块级元素，例如段落、标题、列表项、单元格。</div>
+    </div>
+  </div>
+</div>
+
+<!-- =============================================
+     Status Bar
+     ============================================= -->
+<footer class="status-bar">
+  <div class="status-bar__left">
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
+    <span class="status-bar__path" id="statusPath">未打开文件夹</span>
+  </div>
+  <div class="status-bar__right" id="statusInfo">Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式</div>
+</footer>
+
+<!-- =============================================
+     Toast
+     ============================================= -->
+<div class="toast" id="toast"></div>
+
+<!-- Hidden file inputs -->
+<input type="file" id="fileInputImage" accept="image/*" style="display:none" />
+<input type="file" id="fileInputVideo" accept="video/*" style="display:none" />
+<input type="file" id="fileInputHTML" accept=".html,.htm" style="display:none" />
+
+<script>
+/* =============================================
+   State
+   ============================================= */
+const state = {
+  currentFileHandle: null,
+  currentDirHandle: null,
+  currentFileName: '',
+  currentDirName: '',
+  isSourceMode: false,
+  isEditMode: false,
+  selectedMedia: null,
+  mediaWrapper: null,
+  resizeDir: null,
+  resizeStartX: 0,
+  resizeStartY: 0,
+  resizeStartW: 0,
+  resizeStartH: 0,
+  iframeReady: false,
+  iframeDoc: null,
+  iframeBody: null,
+  pendingImageTarget: null,
+  pendingVideoTarget: null,
+  savedTextRange: null,
+  toolbarInteracting: false,
+  recentColors: [],
+  history: [],
+  historyIndex: -1,
+  isApplyingHistory: false,
+  historyDebounceTimer: 0,
+  recordHistoryOnLoad: false,
+};
+
+/* =============================================
+   DOM References
+   ============================================= */
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+const previewIframe = $('#previewIframe');
+const sourceArea = $('#sourceArea');
+const editorContainer = $('#editorContainer');
+const previewPane = $('#previewPane');
+const sourcePane = $('#sourcePane');
+const btnUndo = $('#btnUndo');
+const btnRedo = $('#btnRedo');
+const gutter = $('#gutter');
+const floatingToolbar = $('#floatingToolbar');
+const toast = $('#toast');
+const statusPath = $('#statusPath');
+const statusInfo = $('#statusInfo');
+const tbFontSize = $('#tbFontSize');
+const tbFontSizeOptions = $('#tbFontSizeOptions');
+const tbLineHeight = $('#tbLineHeight');
+const tbColor = $('#tbColor');
+const tbPresetColors = $('#tbPresetColors');
+const tbRecentColors = $('#tbRecentColors');
+const tbBlockStyleToggle = $('#tbBlockStyleToggle');
+const tbBlockPanel = $('#tbBlockPanel');
+const tbBorderStyle = $('#tbBorderStyle');
+const tbBorderWidth = $('#tbBorderWidth');
+const tbBorderColor = $('#tbBorderColor');
+const tbBackgroundColor = $('#tbBackgroundColor');
+const tbBorderRadius = $('#tbBorderRadius');
+const tbPadding = $('#tbPadding');
+const tbMargin = $('#tbMargin');
+const tbBorderPresetColors = $('#tbBorderPresetColors');
+const tbBackgroundPresetColors = $('#tbBackgroundPresetColors');
+const tbUseTextColorForBorder = $('#tbUseTextColorForBorder');
+const tbUseTextColorForBackground = $('#tbUseTextColorForBackground');
+const tbClearBlockStyle = $('#tbClearBlockStyle');
+
+const FONT_SIZE_MIN = 8;
+const FONT_SIZE_MAX = 72;
+const LINE_HEIGHT_PRESETS = ['1', '1.15', '1.3', '1.5', '1.75', '2', '2.5', '3'];
+const PRESET_TEXT_COLORS = [
+  { label: '黑', value: '#111111' },
+  { label: '深灰', value: '#333333' },
+  { label: '灰', value: '#666666' },
+  { label: '红', value: '#d93025' },
+  { label: '橙', value: '#f29900' },
+  { label: '黄', value: '#c79200' },
+  { label: '绿', value: '#2e7d32' },
+  { label: '青', value: '#00838f' },
+  { label: '蓝', value: '#1565c0' },
+  { label: '紫', value: '#6a1b9a' },
+];
+const MAX_RECENT_COLORS = 5;
+const BLOCK_BORDER_WIDTH_PRESETS = ['0', '1', '2', '4', '8'];
+const BLOCK_RADIUS_PRESETS = ['0', '4', '8', '12', '16'];
+const BLOCK_SPACING_PRESETS = ['0', '8', '12', '16', '24'];
+const BLOCK_TARGET_SELECTOR = 'h1,h2,h3,h4,p,div,li,td,th,blockquote';
+const STORAGE_KEYS = {
+  recentColors: 'htmlEditor.recentColors',
+  lastFileMeta: 'htmlEditor.lastFileMeta',
+  lastHtmlSnapshot: 'htmlEditor.lastHtmlSnapshot',
+};
+const HANDLE_DB_NAME = 'htmlEditorHandles';
+const HANDLE_STORE_NAME = 'handles';
+const HANDLE_LAST_FILE_KEY = 'lastFileHandle';
+let persistSnapshotTimer = 0;
+const MAX_HISTORY_ENTRIES = 80;
+
+initToolbarControls();
+
+/* =============================================
+   Default Welcome HTML
+   ============================================= */
+const defaultHTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    background: #ffffff;
+    color: #1a1a2e;
+    line-height: 1.8;
+    font-size: 16px;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 48px 40px;
+  }
+  h1 { font-size: 32px; font-weight: 700; color: #111; margin-bottom: 4px; }
+  h2 { font-size: 20px; font-weight: 600; color: #222; margin: 32px 0 16px; }
+  p { margin-bottom: 12px; }
+  .subtitle { font-size: 16px; color: #888; }
+  .welcome { text-align: center; padding: 32px 0 24px; }
+  .welcome h1 { font-size: 36px; margin-bottom: 4px; }
+  .tips { display: flex; gap: 16px; margin: 32px 0; flex-wrap: wrap; }
+  .tip-item {
+    flex: 1; min-width: 200px;
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 16px;
+    background: #f7f7f9; border: 1px solid #e5e5ea; border-radius: 8px;
+    font-size: 14px; line-height: 1.5;
+  }
+  .tip-icon {
+    font-size: 18px; flex-shrink: 0;
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: #eee; border-radius: 4px;
+  }
+  .demo-section { margin-top: 40px; }
+  .demo-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .demo-card {
+    background: #f7f7f9; border: 1px solid #e5e5ea; border-radius: 12px;
+    overflow: hidden; cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .demo-card:hover { border-color: #e8913a; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+  .demo-card__preview {
+    aspect-ratio: 16/10;
+    display: flex; align-items: center; justify-content: center;
+    background: #f0f0f3; position: relative; overflow: hidden;
+  }
+  .demo-card__preview img, .demo-card__preview video {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .demo-card__label {
+    padding: 12px 16px; font-size: 13px; font-weight: 500;
+    color: #333; text-align: center; background: #fff;
+  }
+  .placeholder-media {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 8px; color: #999; font-size: 13px;
+  }
+  .placeholder-media svg { width: 40px; height: 40px; opacity: 0.4; }
+</style>
+</head>
+<body>
+<div class="welcome">
+  <h1>欢迎使用 HTML 编辑器</h1>
+  <p class="subtitle">可视化编辑 HTML，所见即所得</p>
+</div>
+
+<div class="tips">
+  <div class="tip-item">
+    <div class="tip-icon"><b>T</b></div>
+    <span>选中任意文字即可编辑内容，点击文字弹出格式工具栏</span>
+  </div>
+  <div class="tip-item">
+    <div class="tip-icon">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="3" width="14" height="10" rx="2"/><circle cx="5" cy="6.5" r="1.3"/><path d="M1 11l3-3 2 2 3.5-3.5L14 11"/></svg>
+    </div>
+    <span>点击图片或视频可替换媒体文件，拖拽手柄调整大小</span>
+  </div>
+  <div class="tip-item">
+    <div class="tip-icon">&lt;/&gt;</div>
+    <span>点击「源码」按钮分栏查看 HTML，编辑模式直接修改代码</span>
+  </div>
+</div>
+
+<div class="demo-section">
+  <h2>功能演示</h2>
+  <div class="demo-cards">
+    <div class="demo-card" data-demo="image-display">
+      <div class="demo-card__preview">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250' viewBox='0 0 400 250'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%234fc1ff'/%3E%3Cstop offset='100%25' style='stop-color:%236a9955'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='400' height='250' rx='8'/%3E%3Ctext x='200' y='120' text-anchor='middle' fill='white' font-size='16' font-family='system-ui' opacity='0.9'%3E示例图片展示%3C/text%3E%3Ctext x='200' y='148' text-anchor='middle' fill='white' font-size='11' font-family='system-ui' opacity='0.6'%3E点击可替换%3C/text%3E%3C/svg%3E" alt="示例图片" />
+      </div>
+      <div class="demo-card__label">图片展示 — 点击图片可替换</div>
+    </div>
+    <div class="demo-card" data-demo="insert-image">
+      <div class="demo-card__preview">
+        <div class="placeholder-media">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+          <span>点击此处插入图片</span>
+        </div>
+      </div>
+      <div class="demo-card__label">插入图片 — 选择本地图片文件</div>
+    </div>
+    <div class="demo-card" data-demo="insert-video">
+      <div class="demo-card__preview">
+        <div class="placeholder-media">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="3"/><polygon points="10,8.5 17,12 10,15.5" fill="currentColor"/></svg>
+          <span>点击此处插入视频</span>
+        </div>
+      </div>
+      <div class="demo-card__label">插入视频 — 选择本地视频文件</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+
+/* =============================================
+   Iframe Initialization
+   ============================================= */
+function initIframe(htmlContent) {
+  const content = htmlContent || defaultHTML;
+  previewIframe.srcdoc = content;
+
+  previewIframe.onload = function() {
+    state.iframeDoc = previewIframe.contentDocument || previewIframe.contentWindow.document;
+    state.iframeBody = state.iframeDoc.body;
+
+    // Make body contenteditable
+    state.iframeBody.setAttribute('contenteditable', 'true');
+
+    // Inject editor styles
+    injectEditorStyles();
+
+    // Protect media elements
+    protectMediaElements();
+
+    // Bind events
+    bindIframeEvents();
+
+    // Set up mutation observer
+    setupIframeObserver();
+
+    state.iframeReady = true;
+
+    // Sync to source if in split mode
+    if (state.isSourceMode) {
+      sourceArea.value = getIframeHTML();
+    }
+
+    if (state.recordHistoryOnLoad && !state.isApplyingHistory) {
+      recordHistorySnapshot({ immediate: true, force: true });
+    }
+    state.recordHistoryOnLoad = false;
+  };
+}
+
+function injectEditorStyles() {
+  const style = state.iframeDoc.createElement('style');
+  style.id = '__editor_styles__';
+  style.textContent = `
+    /* Selection style */
+    ::selection { background: rgba(232,145,58,0.3); color: inherit; }
+
+    /* Selected block outline */
+    .selected-block {
+      outline: 2px solid #e8913a !important;
+      outline-offset: 4px;
+      border-radius: 2px;
+    }
+
+    /* Image/Video hover */
+    img, video {
+      cursor: pointer;
+      transition: outline 0.15s;
+    }
+    img:hover, video:hover {
+      outline: 2px dashed #e8913a;
+      outline-offset: 2px;
+    }
+    img.selected-media, video.selected-media {
+      outline: 2px solid #e8913a !important;
+      outline-offset: 2px;
+    }
+
+    /* Media wrapper */
+    .media-wrapper {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      user-select: none;
+    }
+    .media-wrapper .resize-handle {
+      position: absolute;
+      width: 10px; height: 10px;
+      background: #fff;
+      border: 2px solid #e8913a;
+      z-index: 10;
+    }
+    .media-wrapper .resize-handle.nw { top: -5px; left: -5px; cursor: nw-resize; }
+    .media-wrapper .resize-handle.n  { top: -5px; left: 50%; margin-left: -5px; cursor: n-resize; }
+    .media-wrapper .resize-handle.ne { top: -5px; right: -5px; cursor: ne-resize; }
+    .media-wrapper .resize-handle.w  { top: 50%; left: -5px; margin-top: -5px; cursor: w-resize; }
+    .media-wrapper .resize-handle.e  { top: 50%; right: -5px; margin-top: -5px; cursor: e-resize; }
+    .media-wrapper .resize-handle.sw { bottom: -5px; left: -5px; cursor: sw-resize; }
+    .media-wrapper .resize-handle.s  { bottom: -5px; left: 50%; margin-left: -5px; cursor: s-resize; }
+    .media-wrapper .resize-handle.se { bottom: -5px; right: -5px; cursor: se-resize; }
+    .media-wrapper .media-replace-btn {
+      position: absolute;
+      top: 8px; right: 8px;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: #e8913a;
+      color: #fff;
+      border: none;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      transition: transform 0.15s;
+    }
+    .media-wrapper:hover .media-replace-btn { display: flex; }
+    .media-wrapper .media-replace-btn:hover { transform: scale(1.1); }
+  `;
+  state.iframeDoc.head.appendChild(style);
+}
+
+function getIframeHTML() {
+  if (!state.iframeDoc) return '';
+  const clone = state.iframeDoc.documentElement.cloneNode(true);
+
+  // Remove editor-injected elements
+  const toRemove = clone.querySelectorAll('#__editor_styles__, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
+  toRemove.forEach(el => el.remove());
+
+  // Remove editor classes
+  clone.querySelectorAll('.selected-media').forEach(el => el.classList.remove('selected-media'));
+
+  // Unwrap media-wrapper (keep inner img/video)
+  clone.querySelectorAll('.media-wrapper').forEach(w => {
+    const parent = w.parentNode;
+    while (w.firstChild) {
+      parent.insertBefore(w.firstChild, w);
+    }
+    parent.removeChild(w);
+  });
+
+  // Remove contenteditable attribute
+  clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+
+  return '<!DOCTYPE html>\n' + clone.outerHTML;
+}
+
+/* =============================================
+   Protect Media Elements
+   ============================================= */
+function protectMediaElements() {
+  if (!state.iframeBody) return;
+  state.iframeBody.querySelectorAll('img, video').forEach(el => {
+    el.setAttribute('contenteditable', 'false');
+  });
+}
+
+/* =============================================
+   Iframe Event Binding
+   ============================================= */
+function bindIframeEvents() {
+  const doc = state.iframeDoc;
+  const body = state.iframeBody;
+
+  // Selection change → update toolbar
+  doc.addEventListener('selectionchange', () => {
+    if (doc.activeElement === body || body.contains(doc.activeElement)) {
+      updateToolbar();
+    }
+  });
+
+  // Click events for media and demo cards
+  body.addEventListener('click', function(e) {
+    const target = e.target;
+
+    // Media replace button clicked
+    if (target.classList.contains('media-replace-btn')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const wrapper = target.closest('.media-wrapper');
+      const media = wrapper.querySelector('img, video');
+      if (media) {
+        if (media.tagName === 'IMG') triggerImageReplace(media);
+        else triggerVideoReplace(media);
+      }
+      return;
+    }
+
+    // Image clicked
+    if (target.tagName === 'IMG' && !target.closest('.media-wrapper')) {
+      e.preventDefault();
+      selectMedia(target, 'image');
+      return;
+    }
+
+    // Video clicked
+    if (target.tagName === 'VIDEO' && !target.closest('.media-wrapper')) {
+      e.preventDefault();
+      selectMedia(target, 'video');
+      return;
+    }
+
+    // Demo card: image display
+    const demoCard = target.closest('[data-demo]');
+    if (demoCard) {
+      e.preventDefault();
+      const demoType = demoCard.dataset.demo;
+      if (demoType === 'image-display') {
+        const img = demoCard.querySelector('img');
+        if (img) selectMedia(img, 'image');
+      } else if (demoType === 'insert-image') {
+        triggerImageInsert(demoCard.querySelector('.demo-card__preview'));
+      } else if (demoType === 'insert-video') {
+        triggerVideoInsert(demoCard.querySelector('.demo-card__preview'));
+      }
+      return;
+    }
+
+    // Deselect media when clicking elsewhere
+    deselectMedia();
+
+    if (target === body) {
+      dismissSelection();
+      return;
+    }
+
+    setTimeout(() => {
+      if (!state.iframeDoc || !state.iframeBody) return;
+      const sel = state.iframeDoc.getSelection();
+      const hasActiveTextSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed && state.iframeBody.contains(sel.anchorNode);
+      if (!hasActiveTextSelection) {
+        dismissSelection();
+      }
+    }, 0);
+  });
+
+  // Input event → sync source
+  body.addEventListener('input', function() {
+    if (state.isSourceMode && !state.isEditMode) {
+      sourceArea.value = getIframeHTML();
+    }
+    scheduleSnapshotPersist();
+    recordHistorySnapshot();
+  });
+
+  // Keydown for Ctrl+S
+  body.addEventListener('keydown', function(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      overwriteFile();
+    }
+  });
+
+  // Mouseup for toolbar update
+  body.addEventListener('mouseup', () => setTimeout(updateToolbar, 10));
+
+  // Scroll → keep toolbar attached to the current selection
+  body.addEventListener('scroll', () => {
+    if (floatingToolbar.classList.contains('visible')) {
+      requestAnimationFrame(updateToolbar);
+    } else {
+      clearSelectedBlocks();
+    }
+  });
+}
+
+function setupIframeObserver() {
+  const observer = new MutationObserver(() => {
+    protectMediaElements();
+    if (state.isSourceMode && !state.isEditMode) {
+      sourceArea.value = getIframeHTML();
+    }
+    scheduleSnapshotPersist();
+    recordHistorySnapshot();
+  });
+  observer.observe(state.iframeBody, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+  });
+}
+
+/* =============================================
+   Mode Toggle: Preview / Edit
+   ============================================= */
+$('#modePreview').addEventListener('click', () => switchMode('preview'));
+$('#modeEdit').addEventListener('click', () => switchMode('edit'));
+
+function switchMode(mode) {
+  if (mode === 'edit') {
+    // Save current iframe content to source
+    if (!state.isEditMode) {
+      sourceArea.value = getIframeHTML();
+      recordHistorySnapshot({ immediate: true });
+      state.isEditMode = true;
+      state.iframeReady = false;
+      previewPane.style.display = 'none';
+      editorContainer.classList.add('edit-mode');
+      floatingToolbar.classList.remove('visible');
+    }
+    $('#modeEdit').classList.add('active');
+    $('#modePreview').classList.remove('active');
+    sourceArea.focus();
+  } else {
+    // Render source back to iframe
+    if (state.isEditMode) {
+      initIframe(sourceArea.value);
+      recordHistorySnapshot({ immediate: true, force: true });
+      state.isEditMode = false;
+      previewPane.style.display = '';
+      editorContainer.classList.remove('edit-mode');
+      if (state.isSourceMode) {
+        editorContainer.classList.add('split');
+      }
+    }
+    $('#modePreview').classList.add('active');
+    $('#modeEdit').classList.remove('active');
+  }
+}
+
+/* =============================================
+   Source Mode: Split View
+   ============================================= */
+$('#btnSource').addEventListener('click', () => {
+  if (state.isEditMode) return;
+  state.isSourceMode = !state.isSourceMode;
+
+  if (state.isSourceMode) {
+    sourceArea.value = getIframeHTML();
+    sourcePane.style.display = '';
+    gutter.style.display = 'flex';
+    editorContainer.classList.add('split');
+    sourcePane.style.flex = '1';
+    previewPane.style.flex = '1';
+    showToast('源码分栏已开启');
+  } else {
+    sourcePane.style.display = 'none';
+    gutter.style.display = 'none';
+    sourcePane.style.flex = '';
+    previewPane.style.flex = '';
+    editorContainer.classList.remove('split');
+    showToast('源码分栏已关闭');
+  }
+});
+
+// Sync source changes back to iframe
+sourceArea.addEventListener('input', () => {
+  if (state.isSourceMode && !state.isEditMode) {
+    initIframe(sourceArea.value);
+  }
+  scheduleSnapshotPersist(sourceArea.value);
+  recordHistorySnapshot();
+});
+
+function getCurrentEditorHTML() {
+  return state.isEditMode ? sourceArea.value : getIframeHTML();
+}
+
+function updateStatusPath() {
+  const fileName = state.currentFileName || state.currentFileHandle?.name || '';
+  const dirName = state.currentDirName || state.currentDirHandle?.name || '';
+  if (fileName && dirName) {
+    statusPath.textContent = `${dirName} / ${fileName}`;
+    return;
+  }
+  statusPath.textContent = fileName || dirName || '未打开文件夹';
+}
+
+function persistFileMeta() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.lastFileMeta, JSON.stringify({
+      fileName: state.currentFileName || state.currentFileHandle?.name || '',
+      dirName: state.currentDirName || state.currentDirHandle?.name || '',
+    }));
+  } catch (err) {
+    console.warn('保存文件信息失败', err);
+  }
+}
+
+function readPersistedFileMeta() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.lastFileMeta) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
+  if (!html) return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, html);
+  } catch (err) {
+    console.warn('保存内容快照失败', err);
+  }
+}
+
+function readPersistedHtmlSnapshot() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.lastHtmlSnapshot) || '';
+  } catch {
+    return '';
+  }
+}
+
+function scheduleSnapshotPersist(html) {
+  clearTimeout(persistSnapshotTimer);
+  persistSnapshotTimer = window.setTimeout(() => {
+    persistHtmlSnapshot(html || getCurrentEditorHTML());
+  }, 240);
+}
+
+function clearSelectionState() {
+  state.savedTextRange = null;
+  state.toolbarInteracting = false;
+
+  try {
+    if (state.iframeDoc) {
+      const sel = state.iframeDoc.getSelection();
+      if (sel) sel.removeAllRanges();
+    }
+  } catch (err) {}
+
+  clearSelectedBlocks();
+  deselectMedia();
+}
+
+function dismissSelection() {
+  toggleBlockPanel(false);
+  floatingToolbar.classList.remove('visible');
+  floatingToolbar.style.visibility = '';
+  clearSelectionState();
+  resetToolbarTextControls();
+}
+
+function finishToolbarInteraction(shouldRefresh = true) {
+  state.toolbarInteracting = false;
+  if (shouldRefresh) {
+    requestAnimationFrame(updateToolbar);
+  }
+}
+
+function recordHistorySnapshot(options = {}) {
+  const { immediate = false, force = false } = options;
+  if (state.isApplyingHistory) return;
+
+  const commit = () => {
+    if (state.isApplyingHistory) return;
+    const html = getCurrentEditorHTML();
+    if (!html) return;
+
+    const current = state.history[state.historyIndex];
+    if (!force && current === html) return;
+
+    if (state.historyIndex < state.history.length - 1) {
+      state.history = state.history.slice(0, state.historyIndex + 1);
+    }
+
+    state.history.push(html);
+    if (state.history.length > MAX_HISTORY_ENTRIES) {
+      state.history.shift();
+    }
+    state.historyIndex = state.history.length - 1;
+    updateHistoryButtons();
+  };
+
+  clearTimeout(state.historyDebounceTimer);
+  if (immediate) {
+    commit();
+  } else {
+    state.historyDebounceTimer = window.setTimeout(commit, 180);
+  }
+}
+
+function applyHistoryEntry(html) {
+  if (!html) return;
+  state.isApplyingHistory = true;
+
+  if (state.isEditMode) {
+    sourceArea.value = html;
+    scheduleSnapshotPersist(html);
+  } else {
+    loadEditorContent(html);
+  }
+
+  dismissSelection();
+  setTimeout(() => {
+    state.isApplyingHistory = false;
+  }, 0);
+}
+
+function undoEdit() {
+  if (state.historyIndex <= 0) return;
+  state.historyIndex -= 1;
+  updateHistoryButtons();
+  applyHistoryEntry(state.history[state.historyIndex]);
+  showToast('已撤销');
+}
+
+function redoEdit() {
+  if (state.historyIndex >= state.history.length - 1) return;
+  state.historyIndex += 1;
+  updateHistoryButtons();
+  applyHistoryEntry(state.history[state.historyIndex]);
+  showToast('已重做');
+}
+
+function updateHistoryButtons() {
+  btnUndo.disabled = state.historyIndex <= 0;
+  btnRedo.disabled = state.historyIndex >= state.history.length - 1 || state.historyIndex === -1;
+}
+
+btnUndo.addEventListener('click', () => {
+  undoEdit();
+});
+
+btnRedo.addEventListener('click', () => {
+  redoEdit();
+});
+
+function loadEditorContent(html) {
+  state.recordHistoryOnLoad = true;
+  initIframe(html);
+  persistHtmlSnapshot(html);
+  persistFileMeta();
+  updateStatusPath();
+}
+
+function openHandleDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      resolve(null);
+      return;
+    }
+
+    const request = indexedDB.open(HANDLE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(HANDLE_STORE_NAME)) {
+        request.result.createObjectStore(HANDLE_STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function setStoredHandle(key, handle) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+    tx.objectStore(HANDLE_STORE_NAME).put(handle, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getStoredHandle(key) {
+  const db = await openHandleDatabase();
+  if (!db) return null;
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE_NAME, 'readonly');
+    const request = tx.objectStore(HANDLE_STORE_NAME).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function clearStoredHandle(key) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+    tx.objectStore(HANDLE_STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function queryHandlePermission(handle, mode = 'read') {
+  if (!handle?.queryPermission) return true;
+  try {
+    return (await handle.queryPermission({ mode })) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+async function requestHandlePermission(handle, mode = 'readwrite') {
+  if (!handle?.requestPermission) return true;
+  try {
+    return (await handle.requestPermission({ mode })) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName }) {
+  state.currentFileHandle = fileHandle || null;
+  state.currentDirHandle = dirHandle || null;
+  state.currentFileName = fileName || fileHandle?.name || '';
+  state.currentDirName = dirName || dirHandle?.name || '';
+  persistFileMeta();
+  updateStatusPath();
+
+  try {
+    if (fileHandle) {
+      await setStoredHandle(HANDLE_LAST_FILE_KEY, fileHandle);
+    } else {
+      await clearStoredHandle(HANDLE_LAST_FILE_KEY);
+    }
+  } catch (err) {
+    console.warn('保存文件句柄失败', err);
+  }
+}
+
+async function restoreLastSession() {
+  const meta = readPersistedFileMeta();
+  if (meta) {
+    state.currentFileName = meta.fileName || '';
+    state.currentDirName = meta.dirName || '';
+    updateStatusPath();
+  }
+
+  let handle = null;
+  try {
+    handle = await getStoredHandle(HANDLE_LAST_FILE_KEY);
+  } catch (err) {
+    console.warn('读取文件句柄失败', err);
+  }
+
+  if (handle) {
+    state.currentFileHandle = handle;
+    state.currentFileName = handle.name || state.currentFileName;
+    updateStatusPath();
+
+    if (await queryHandlePermission(handle, 'read')) {
+      try {
+        const file = await handle.getFile();
+        loadEditorContent(await file.text());
+        showToast(`已恢复上次文件: ${state.currentFileName}`);
+        return true;
+      } catch (err) {
+        console.warn('恢复上次文件失败', err);
+      }
+    }
+  }
+
+  const snapshot = readPersistedHtmlSnapshot();
+  if (snapshot) {
+    loadEditorContent(snapshot);
+    if (state.currentFileName) {
+      showToast(`已恢复上次内容: ${state.currentFileName}`);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/* =============================================
+   Gutter Resize
+   ============================================= */
+let gutterDragging = false;
+gutter.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  gutterDragging = true;
+  gutter.classList.add('dragging');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!gutterDragging) return;
+  const rect = editorContainer.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const pct = Math.max(20, Math.min(80, (x / rect.width) * 100));
+  previewPane.style.flex = `${pct}`;
+  sourcePane.style.flex = `${100 - pct}`;
+});
+
+document.addEventListener('mouseup', () => {
+  if (!gutterDragging) return;
+  gutterDragging = false;
+  gutter.classList.remove('dragging');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+});
+
+/* =============================================
+   Floating Toolbar
+   ============================================= */
+function initToolbarControls() {
+  for (let size = FONT_SIZE_MIN; size <= FONT_SIZE_MAX; size += 1) {
+    const option = document.createElement('option');
+    option.value = String(size);
+    tbFontSizeOptions.appendChild(option);
+  }
+
+  LINE_HEIGHT_PRESETS.forEach(value => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = `${value}x`;
+    tbLineHeight.appendChild(option);
+  });
+
+  loadRecentColors();
+  renderPresetColors();
+  renderRecentColors();
+  renderBlockColorPresets();
+  setColorDisplayValue(tbColor.value);
+}
+
+function formatToolbarNumber(value) {
+  const rounded = Math.round(value * 100) / 100;
+  return rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+}
+
+function setSelectDisplayValue(select, value, label) {
+  select.querySelectorAll('option[data-dynamic="true"]').forEach(option => option.remove());
+
+  if (!value) {
+    select.value = '';
+    return;
+  }
+
+  let option = Array.from(select.options).find(item => item.value === value);
+  if (!option) {
+    option = document.createElement('option');
+    option.value = value;
+    option.dataset.dynamic = 'true';
+    select.appendChild(option);
+  }
+
+  option.textContent = label;
+  select.value = value;
+}
+
+function setFontSizeDisplayValue(value) {
+  tbFontSize.value = value || '';
+}
+
+function normalizeHexColor(value) {
+  if (!value) return '';
+  const color = String(value).trim().toLowerCase();
+
+  if (color === 'transparent') return '';
+
+  if (/^#[0-9a-f]{3}$/.test(color)) {
+    return '#' + color.slice(1).split('').map(ch => ch + ch).join('');
+  }
+  if (/^#[0-9a-f]{6}$/.test(color)) {
+    return color;
+  }
+
+  const rgbMatch = color.match(/^rgba?\(([^)]+)\)$/);
+  if (!rgbMatch) return '';
+
+  const parts = rgbMatch[1].split(',').slice(0, 3).map(item => Number.parseFloat(item.trim()));
+  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return '';
+
+  const alphaRaw = rgbMatch[1].split(',')[3];
+  if (typeof alphaRaw !== 'undefined' && Number.parseFloat(alphaRaw.trim()) === 0) {
+    return '';
+  }
+
+  return '#' + parts
+    .map(part => Math.max(0, Math.min(255, Math.round(part))).toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function highlightColorSwatches(color) {
+  const normalized = normalizeHexColor(color);
+  $$('.tb-swatch[data-color]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.color === normalized);
+  });
+}
+
+function setColorDisplayValue(value) {
+  const normalized = normalizeHexColor(value);
+  if (normalized) {
+    tbColor.value = normalized;
+  }
+  highlightColorSwatches(normalized);
+}
+
+function mixHexColors(colorA, colorB, ratio = 0.5) {
+  const a = normalizeHexColor(colorA);
+  const b = normalizeHexColor(colorB);
+  if (!a || !b) return '';
+
+  const mix = (start, end) => {
+    const s = Number.parseInt(start, 16);
+    const e = Number.parseInt(end, 16);
+    return Math.round(s + (e - s) * ratio).toString(16).padStart(2, '0');
+  };
+
+  return `#${mix(a.slice(1, 3), b.slice(1, 3))}${mix(a.slice(3, 5), b.slice(3, 5))}${mix(a.slice(5, 7), b.slice(5, 7))}`;
+}
+
+function createColorSwatch(color, title) {
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.className = 'tb-swatch';
+  swatch.dataset.color = color;
+  swatch.title = title;
+  swatch.style.background = color;
+  swatch.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    state.toolbarInteracting = true;
+    saveSelection();
+    applyTextColor(color);
+  });
+  return swatch;
+}
+
+function renderPresetColors() {
+  tbPresetColors.innerHTML = '';
+  PRESET_TEXT_COLORS.forEach(({ label, value }) => {
+    tbPresetColors.appendChild(createColorSwatch(value, `${label}: ${value}`));
+  });
+}
+
+function createBlockColorSwatch(color, title, apply) {
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.className = 'tb-swatch';
+  swatch.title = title;
+  swatch.style.background = color;
+  swatch.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    state.toolbarInteracting = true;
+    saveSelection();
+    apply(color);
+  });
+  return swatch;
+}
+
+function renderBlockColorPresets() {
+  tbBorderPresetColors.innerHTML = '';
+  tbBackgroundPresetColors.innerHTML = '';
+
+  PRESET_TEXT_COLORS.slice(0, 5).forEach(({ label, value }) => {
+    tbBorderPresetColors.appendChild(
+      createBlockColorSwatch(value, `边框颜色 ${label}: ${value}`, (color) => {
+        tbBorderColor.value = color;
+        applyBlockStyle({ borderColor: color });
+      })
+    );
+  });
+
+  const backgroundPresets = ['#ffffff', '#fff3e4', '#fef7d6', '#e9f7ef', '#e8f2ff'];
+  backgroundPresets.forEach((value, index) => {
+    tbBackgroundPresetColors.appendChild(
+      createBlockColorSwatch(value, `背景颜色 ${index + 1}: ${value}`, (color) => {
+        tbBackgroundColor.value = color;
+        applyBlockStyle({ backgroundColor: color });
+      })
+    );
+  });
+}
+
+function renderRecentColors() {
+  tbRecentColors.innerHTML = '';
+
+  state.recentColors.slice(0, MAX_RECENT_COLORS).forEach((color, index) => {
+    tbRecentColors.appendChild(createColorSwatch(color, `历史颜色 ${index + 1}: ${color}`));
+  });
+
+  while (tbRecentColors.childElementCount < MAX_RECENT_COLORS) {
+    const placeholder = document.createElement('button');
+    placeholder.type = 'button';
+    placeholder.className = 'tb-swatch tb-swatch--empty';
+    placeholder.disabled = true;
+    placeholder.title = '暂无历史颜色';
+    tbRecentColors.appendChild(placeholder);
+  }
+
+  highlightColorSwatches(tbColor.value);
+}
+
+function loadRecentColors() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.recentColors) || '[]');
+    state.recentColors = Array.isArray(saved)
+      ? saved.map(normalizeHexColor).filter(Boolean).slice(0, MAX_RECENT_COLORS)
+      : [];
+  } catch {
+    state.recentColors = [];
+  }
+}
+
+function persistRecentColors() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.recentColors, JSON.stringify(state.recentColors));
+  } catch (err) {
+    console.warn('保存历史颜色失败', err);
+  }
+}
+
+function pushRecentColor(color) {
+  const normalized = normalizeHexColor(color);
+  if (!normalized) return;
+
+  state.recentColors = [normalized, ...state.recentColors.filter(item => item !== normalized)]
+    .slice(0, MAX_RECENT_COLORS);
+  persistRecentColors();
+  renderRecentColors();
+}
+
+function getBlockStyleTarget(range = null) {
+  if (!state.iframeDoc || !state.iframeBody) return null;
+
+  const activeRange = range || state.savedTextRange || (
+    state.iframeDoc.getSelection().rangeCount > 0 ? state.iframeDoc.getSelection().getRangeAt(0) : null
+  );
+  if (!activeRange) return null;
+
+  let node = activeRange.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentElement;
+  if (!node) return null;
+
+  const target = node.closest(BLOCK_TARGET_SELECTOR);
+  if (!target || target === state.iframeBody) return null;
+  return target;
+}
+
+function parsePixelValue(value) {
+  if (!value) return '';
+  const numeric = Number.parseFloat(String(value));
+  return Number.isFinite(numeric) ? String(Math.max(0, Math.round(numeric))) : '';
+}
+
+function parseBlockBorderWidth(node) {
+  if (!state.iframeDoc || !node) return '0';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node);
+  const style = computed.borderTopStyle;
+  const width = parsePixelValue(computed.borderTopWidth);
+  return !style || style === 'none' ? '0' : (width || '0');
+}
+
+function parseBlockBorderStyle(node) {
+  if (!state.iframeDoc || !node) return 'none';
+  const style = state.iframeDoc.defaultView.getComputedStyle(node).borderTopStyle;
+  return style && style !== 'hidden' ? style : 'none';
+}
+
+function parseBlockBorderColor(node) {
+  if (!state.iframeDoc || !node) return '#e8913a';
+  const color = normalizeHexColor(state.iframeDoc.defaultView.getComputedStyle(node).borderTopColor);
+  return color || '#e8913a';
+}
+
+function parseBlockBackgroundColor(node) {
+  if (!state.iframeDoc || !node) return '#ffffff';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node).backgroundColor;
+  const normalized = normalizeHexColor(computed);
+  return normalized || '#ffffff';
+}
+
+function parseBlockRadius(node) {
+  if (!state.iframeDoc || !node) return '0';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node).borderTopLeftRadius;
+  return parsePixelValue(computed) || '0';
+}
+
+function parseBlockPadding(node) {
+  if (!state.iframeDoc || !node) return '0';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node).paddingTop;
+  return parsePixelValue(computed) || '0';
+}
+
+function parseBlockMargin(node) {
+  if (!state.iframeDoc || !node) return '0';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node).marginTop;
+  return parsePixelValue(computed) || '0';
+}
+
+function updateBlockStyleAvailability(range) {
+  const target = getBlockStyleTarget(range);
+  const hasTarget = Boolean(target);
+  const group = tbBlockStyleToggle.closest('.floating-toolbar__group');
+  if (group) {
+    group.style.display = hasTarget ? '' : 'none';
+  }
+  if (!hasTarget) {
+    toggleBlockPanel(false);
+  }
+  return target;
+}
+
+function syncBlockStyleControls(range) {
+  const target = updateBlockStyleAvailability(range);
+  const enabled = Boolean(target);
+
+  tbBlockStyleToggle.classList.toggle('active', enabled && tbBlockPanel.classList.contains('visible'));
+  [
+    tbBorderStyle,
+    tbBorderWidth,
+    tbBorderColor,
+    tbBackgroundColor,
+    tbBorderRadius,
+    tbPadding,
+    tbMargin,
+    tbUseTextColorForBorder,
+    tbUseTextColorForBackground,
+    tbClearBlockStyle,
+  ].forEach(el => { el.disabled = !enabled; });
+
+  if (!enabled) {
+    tbBorderStyle.value = 'none';
+    tbBorderWidth.value = '0';
+    tbBorderColor.value = '#e8913a';
+    tbBackgroundColor.value = '#ffffff';
+    tbBorderRadius.value = '0';
+    tbPadding.value = '0';
+    tbMargin.value = '0';
+    return;
+  }
+
+  const borderStyle = parseBlockBorderStyle(target);
+  const borderWidth = parseBlockBorderWidth(target);
+  const borderColor = parseBlockBorderColor(target);
+  const backgroundColor = parseBlockBackgroundColor(target);
+  const borderRadius = parseBlockRadius(target);
+  const padding = parseBlockPadding(target);
+  const margin = parseBlockMargin(target);
+
+  tbBorderStyle.value = ['none', 'solid', 'dashed', 'dotted'].includes(borderStyle) ? borderStyle : 'solid';
+  tbBorderWidth.value = BLOCK_BORDER_WIDTH_PRESETS.includes(borderWidth) ? borderWidth : '2';
+  tbBorderColor.value = borderColor;
+  tbBackgroundColor.value = backgroundColor;
+  tbBorderRadius.value = BLOCK_RADIUS_PRESETS.includes(borderRadius) ? borderRadius : '8';
+  tbPadding.value = BLOCK_SPACING_PRESETS.includes(padding) ? padding : '12';
+  tbMargin.value = BLOCK_SPACING_PRESETS.includes(margin) ? margin : '0';
+}
+
+function resetBlockPanelPosition() {
+  tbBlockPanel.classList.remove('upward');
+  tbBlockPanel.style.setProperty('--panel-shift', '0px');
+}
+
+function positionBlockPanel() {
+  if (!tbBlockPanel.classList.contains('visible')) {
+    resetBlockPanelPosition();
+    return;
+  }
+
+  tbBlockPanel.classList.remove('upward');
+  tbBlockPanel.style.setProperty('--panel-shift', '0px');
+
+  requestAnimationFrame(() => {
+    const panelRect = tbBlockPanel.getBoundingClientRect();
+    const gutter = 12;
+    let shift = 0;
+
+    if (panelRect.left < gutter) {
+      shift = gutter - panelRect.left;
+    } else if (panelRect.right > window.innerWidth - gutter) {
+      shift = (window.innerWidth - gutter) - panelRect.right;
+    }
+
+    tbBlockPanel.style.setProperty('--panel-shift', `${shift}px`);
+
+    const nextRect = tbBlockPanel.getBoundingClientRect();
+    const needsUpward = nextRect.bottom > window.innerHeight - gutter && tbBlockStyleToggle.getBoundingClientRect().top > nextRect.height + 24;
+    tbBlockPanel.classList.toggle('upward', needsUpward);
+  });
+}
+
+function toggleBlockPanel(force) {
+  const nextVisible = typeof force === 'boolean'
+    ? force
+    : !tbBlockPanel.classList.contains('visible');
+
+  if (nextVisible && !updateBlockStyleAvailability()) return;
+
+  tbBlockPanel.classList.toggle('visible', nextVisible);
+  tbBlockStyleToggle.classList.toggle('active', nextVisible);
+
+  if (nextVisible) {
+    syncBlockStyleControls();
+    positionBlockPanel();
+  } else {
+    resetBlockPanelPosition();
+  }
+}
+
+window.addEventListener('resize', () => {
+  if (tbBlockPanel.classList.contains('visible')) {
+    positionBlockPanel();
+  }
+});
+
+function applyBlockStyle(patch = {}) {
+  if (!state.iframeDoc) return;
+  restoreSelection();
+  const target = getBlockStyleTarget();
+  if (!target) return;
+
+  const style = target.style;
+  const nextBorderStyle = patch.borderStyle ?? parseBlockBorderStyle(target);
+  const nextBorderWidth = patch.borderWidth ?? parseBlockBorderWidth(target);
+  const normalizedBorderColor = patch.borderColor ? normalizeHexColor(patch.borderColor) : parseBlockBorderColor(target);
+  const normalizedBackgroundColor = patch.backgroundColor ? normalizeHexColor(patch.backgroundColor) : parseBlockBackgroundColor(target);
+  const nextRadius = patch.borderRadius ?? parseBlockRadius(target);
+  const nextPadding = patch.padding ?? parseBlockPadding(target);
+  const nextMargin = patch.margin ?? parseBlockMargin(target);
+
+  const borderDisabled = nextBorderStyle === 'none' || String(nextBorderWidth) === '0';
+  if (borderDisabled) {
+    style.border = '';
+  } else {
+    style.borderStyle = nextBorderStyle;
+    style.borderWidth = `${nextBorderWidth}px`;
+    if (normalizedBorderColor) {
+      style.borderColor = normalizedBorderColor;
+    }
+  }
+
+  if ('backgroundColor' in patch) {
+    style.backgroundColor = normalizedBackgroundColor || '';
+  }
+  if ('borderRadius' in patch) {
+    style.borderRadius = `${nextRadius}px`;
+  }
+  if ('padding' in patch) {
+    style.padding = `${nextPadding}px`;
+  }
+  if ('margin' in patch) {
+    style.margin = `${nextMargin}px`;
+  }
+
+  if (patch.clear) {
+    style.border = '';
+    style.backgroundColor = '';
+    style.borderRadius = '';
+    style.padding = '';
+    style.margin = '';
+  }
+
+  saveSelection();
+  syncBlockStyleControls();
+  scheduleSnapshotPersist();
+  finishToolbarInteraction(false);
+  setTimeout(updateToolbar, 30);
+}
+
+function getRangeStyleContext(range) {
+  let inlineNode = range.startContainer;
+  if (inlineNode.nodeType === 3) inlineNode = inlineNode.parentElement;
+
+  let blockNode = range.commonAncestorContainer;
+  if (blockNode.nodeType === 3) blockNode = blockNode.parentElement;
+  blockNode = blockNode.closest('h1,h2,h3,h4,p,div,li,td,th,blockquote') || inlineNode || blockNode;
+
+  return {
+    inlineNode: inlineNode || state.iframeBody,
+    blockNode: blockNode || inlineNode || state.iframeBody,
+  };
+}
+
+function getSelectionFontSize(range) {
+  if (!state.iframeDoc || !range) return null;
+  const { inlineNode } = getRangeStyleContext(range);
+  const fontSize = parseFloat(state.iframeDoc.defaultView.getComputedStyle(inlineNode).fontSize);
+  return Number.isFinite(fontSize) ? fontSize : null;
+}
+
+function normalizeLineHeightValue(rawValue, fontSize) {
+  if (!rawValue) return '';
+  const value = String(rawValue).trim();
+  if (!value || value === 'normal') return '';
+
+  if (/%$/i.test(value)) {
+    return formatToolbarNumber(parseFloat(value) / 100);
+  }
+
+  if (/px$/i.test(value)) {
+    if (!fontSize) return '';
+    return formatToolbarNumber(parseFloat(value) / fontSize);
+  }
+
+  if (/em$/i.test(value) || /rem$/i.test(value)) {
+    return formatToolbarNumber(parseFloat(value));
+  }
+
+  const numeric = parseFloat(value);
+  return Number.isFinite(numeric) ? formatToolbarNumber(numeric) : '';
+}
+
+function getSelectionLineHeight(range, fontSize) {
+  if (!state.iframeDoc || !range) return '';
+  const { blockNode } = getRangeStyleContext(range);
+  const inlineValue = blockNode.style.lineHeight;
+  if (inlineValue) {
+    return normalizeLineHeightValue(inlineValue, fontSize);
+  }
+
+  const computed = state.iframeDoc.defaultView.getComputedStyle(blockNode).lineHeight;
+  return normalizeLineHeightValue(computed, fontSize);
+}
+
+function getSelectionTextColor(range) {
+  if (!state.iframeDoc || !range) return '';
+  const { inlineNode } = getRangeStyleContext(range);
+  const computed = state.iframeDoc.defaultView.getComputedStyle(inlineNode).color;
+  return normalizeHexColor(computed);
+}
+
+function syncToolbarTextControls(range) {
+  const fontSize = getSelectionFontSize(range);
+  const fontSizeValue = fontSize ? formatToolbarNumber(fontSize) : '';
+  setFontSizeDisplayValue(fontSizeValue);
+
+  const lineHeightValue = getSelectionLineHeight(range, fontSize);
+  setSelectDisplayValue(tbLineHeight, lineHeightValue, lineHeightValue ? `${lineHeightValue}x` : '行高');
+
+  const textColor = getSelectionTextColor(range);
+  setColorDisplayValue(textColor || tbColor.value);
+}
+
+function resetToolbarTextControls() {
+  setFontSizeDisplayValue('');
+  setSelectDisplayValue(tbLineHeight, '', '行高');
+  highlightColorSwatches('');
+  syncBlockStyleControls(null);
+}
+
+function updateToolbar() {
+  if (!state.iframeReady) {
+    floatingToolbar.classList.remove('visible');
+    floatingToolbar.style.visibility = '';
+    resetToolbarTextControls();
+    return;
+  }
+
+  const doc = state.iframeDoc;
+  const sel = doc.getSelection();
+  const liveRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+  const shouldUseLiveRange = (
+    liveRange &&
+    !sel.isCollapsed &&
+    state.iframeBody.contains(sel.anchorNode)
+  );
+  const range = shouldUseLiveRange ? liveRange : (
+    state.toolbarInteracting ? state.savedTextRange : null
+  );
+
+  if (!range) {
+    floatingToolbar.classList.remove('visible');
+    floatingToolbar.style.visibility = '';
+    if (!state.toolbarInteracting) state.savedTextRange = null;
+    clearSelectedBlocks();
+    resetToolbarTextControls();
+    return;
+  }
+
+  saveSelection(range);
+  const rect = range.getBoundingClientRect();
+  if (!rect || (rect.width === 0 && rect.height === 0)) {
+    floatingToolbar.classList.remove('visible');
+    floatingToolbar.style.visibility = '';
+    return;
+  }
+
+  // Add orange outline to closest block
+  clearSelectedBlocks();
+  let node = range.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentElement;
+  const block = node.closest('h1,h2,h3,h4,p,div,li,td,th,blockquote,span') || node;
+  if (block && block !== state.iframeBody) {
+    block.classList.add('selected-block');
+  }
+
+  // Position toolbar above selection, accounting for the iframe offset
+  const iframeRect = previewIframe.getBoundingClientRect();
+  floatingToolbar.classList.add('visible');
+  floatingToolbar.style.visibility = 'hidden';
+  const toolbarRect = floatingToolbar.getBoundingClientRect();
+  const toolbarW = toolbarRect.width || 280;
+  const toolbarH = toolbarRect.height || 42;
+
+  let top = iframeRect.top + rect.top - toolbarH - 8;
+  let left = iframeRect.left + rect.left + rect.width / 2;
+
+  // Clamp
+  if (top < 56) top = iframeRect.top + rect.bottom + 8;
+  top = Math.min(window.innerHeight - toolbarH - 8, top);
+  left = Math.max(toolbarW / 2 + 8, left);
+  left = Math.min(window.innerWidth - toolbarW / 2 - 8, left);
+
+  floatingToolbar.style.top = `${top}px`;
+  floatingToolbar.style.left = `${left}px`;
+  floatingToolbar.style.visibility = '';
+
+  // Sync button states
+  const cmd = (c) => doc.queryCommandState(c);
+  $('#tbBold').classList.toggle('active', cmd('bold'));
+  $('#tbItalic').classList.toggle('active', cmd('italic'));
+  syncToolbarTextControls(range);
+  syncBlockStyleControls(range);
+  if (tbBlockPanel.classList.contains('visible')) {
+    positionBlockPanel();
+  }
+}
+
+function clearSelectedBlocks() {
+  if (state.iframeBody) {
+    state.iframeBody.querySelectorAll('.selected-block').forEach(el => el.classList.remove('selected-block'));
+  }
+}
+
+// Toolbar button handlers
+// B/I 按钮使用 mousedown + preventDefault 保持选区不丢失
+$('#tbBold').addEventListener('mousedown', (e) => { e.preventDefault(); execIframeCmd('bold'); });
+$('#tbItalic').addEventListener('mousedown', (e) => { e.preventDefault(); execIframeCmd('italic'); });
+
+$('#tbFontUp').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  adjustFontSize(1);
+});
+
+$('#tbFontDown').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  adjustFontSize(-1);
+});
+
+// 下拉框和颜色选择器：点击时会抢走 iframe 焦点导致选区消失，需要先保存选区
+function commitFontSizeInput() {
+  const size = parseFloat(tbFontSize.value);
+  state.toolbarInteracting = false;
+  if (!Number.isFinite(size)) {
+    updateToolbar();
+    return;
+  }
+
+  restoreSelection();
+  applyFontSize(size);
+}
+
+tbFontSize.addEventListener('mousedown', () => {
+  state.toolbarInteracting = true;
+  saveSelection();
+});
+tbFontSize.addEventListener('focus', () => {
+  state.toolbarInteracting = true;
+  saveSelection();
+});
+tbFontSize.addEventListener('change', () => {
+  commitFontSizeInput();
+});
+tbFontSize.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  commitFontSizeInput();
+});
+tbFontSize.addEventListener('blur', () => {
+  state.toolbarInteracting = false;
+  requestAnimationFrame(updateToolbar);
+});
+
+tbLineHeight.addEventListener('mousedown', () => {
+  state.toolbarInteracting = true;
+  saveSelection();
+});
+tbLineHeight.addEventListener('change', () => {
+  restoreSelection();
+  state.toolbarInteracting = false;
+  applyLineHeight(tbLineHeight.value);
+});
+tbLineHeight.addEventListener('blur', () => {
+  state.toolbarInteracting = false;
+  requestAnimationFrame(updateToolbar);
+});
+
+function applyTextColor(color) {
+  const normalized = normalizeHexColor(color);
+  if (!normalized || !state.iframeDoc) return;
+
+  const selection = state.iframeDoc.getSelection();
+  const hasLiveSelection = selection && selection.rangeCount > 0 && !selection.isCollapsed;
+  if (!hasLiveSelection && !restoreSelection()) return;
+
+  execIframeCmd('foreColor', normalized);
+  setColorDisplayValue(normalized);
+  pushRecentColor(normalized);
+  state.toolbarInteracting = false;
+}
+
+tbColor.addEventListener('mousedown', (e) => {
+  state.toolbarInteracting = true;
+  saveSelection();
+});
+tbColor.addEventListener('input', () => {
+  applyTextColor(tbColor.value);
+});
+tbColor.addEventListener('blur', () => {
+  state.toolbarInteracting = false;
+  requestAnimationFrame(updateToolbar);
+});
+
+tbBlockStyleToggle.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  state.toolbarInteracting = true;
+  saveSelection();
+  toggleBlockPanel();
+});
+
+[
+  tbBorderStyle,
+  tbBorderWidth,
+  tbBorderColor,
+  tbBackgroundColor,
+  tbBorderRadius,
+  tbPadding,
+  tbMargin,
+  tbUseTextColorForBorder,
+  tbUseTextColorForBackground,
+  tbClearBlockStyle,
+].forEach(el => {
+  el.addEventListener('mousedown', () => {
+    state.toolbarInteracting = true;
+    saveSelection();
+  });
+});
+
+tbBorderStyle.addEventListener('change', () => {
+  applyBlockStyle({
+    borderStyle: tbBorderStyle.value,
+    borderWidth: tbBorderWidth.value,
+  });
+  finishToolbarInteraction();
+});
+
+tbBorderWidth.addEventListener('change', () => {
+  applyBlockStyle({
+    borderStyle: tbBorderStyle.value,
+    borderWidth: tbBorderWidth.value,
+  });
+  finishToolbarInteraction();
+});
+
+tbBorderColor.addEventListener('input', () => {
+  applyBlockStyle({ borderColor: tbBorderColor.value });
+  finishToolbarInteraction();
+});
+
+tbBackgroundColor.addEventListener('input', () => {
+  applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
+  finishToolbarInteraction();
+});
+
+tbBorderRadius.addEventListener('change', () => {
+  applyBlockStyle({ borderRadius: tbBorderRadius.value });
+  finishToolbarInteraction();
+});
+
+tbPadding.addEventListener('change', () => {
+  applyBlockStyle({ padding: tbPadding.value });
+  finishToolbarInteraction();
+});
+
+tbMargin.addEventListener('change', () => {
+  applyBlockStyle({ margin: tbMargin.value });
+  finishToolbarInteraction();
+});
+
+tbUseTextColorForBorder.addEventListener('click', (e) => {
+  e.preventDefault();
+  const color = normalizeHexColor(tbColor.value);
+  if (!color) return;
+  tbBorderColor.value = color;
+  applyBlockStyle({ borderColor: color });
+  finishToolbarInteraction();
+});
+
+tbUseTextColorForBackground.addEventListener('click', (e) => {
+  e.preventDefault();
+  const color = normalizeHexColor(tbColor.value);
+  if (!color) return;
+  tbBackgroundColor.value = mixHexColors(color, '#ffffff', 0.82) || '#fff3e4';
+  applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
+  finishToolbarInteraction();
+});
+
+tbClearBlockStyle.addEventListener('click', (e) => {
+  e.preventDefault();
+  applyBlockStyle({ clear: true });
+  finishToolbarInteraction();
+});
+
+tbBlockPanel.addEventListener('mousedown', () => {
+  state.toolbarInteracting = true;
+});
+
+// ---- 选区保存/恢复 ----
+function saveSelection(range = null) {
+  if (!state.iframeDoc || !state.iframeBody) return false;
+  const sel = state.iframeDoc.getSelection();
+  const nextRange = range || (sel.rangeCount > 0 ? sel.getRangeAt(0) : null);
+  if (!nextRange || nextRange.collapsed) return false;
+
+  let node = nextRange.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentNode;
+  if (!node || !state.iframeBody.contains(node)) return false;
+
+  state.savedTextRange = nextRange.cloneRange();
+  return true;
+}
+
+function restoreSelection() {
+  if (!state.iframeDoc || !state.savedTextRange || !state.iframeBody) return false;
+
+  let node = state.savedTextRange.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentNode;
+  if (!node || !state.iframeBody.contains(node)) return false;
+
+  state.iframeBody.focus();
+  try { state.iframeDoc.defaultView.focus(); } catch (e) {}
+  const sel = state.iframeDoc.getSelection();
+  sel.removeAllRanges();
+  const range = state.savedTextRange.cloneRange();
+  sel.addRange(range);
+  return true;
+}
+
+function restoreSelectionAroundNodes(firstNode, lastNode) {
+  if (!state.iframeDoc || !firstNode || !lastNode || !state.iframeBody) return false;
+
+  const doc = state.iframeDoc;
+  const range = doc.createRange();
+  range.setStart(firstNode, 0);
+  range.setEnd(lastNode, lastNode.childNodes.length);
+
+  const sel = doc.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  state.iframeBody.focus();
+  try { doc.defaultView.focus(); } catch (e) {}
+  saveSelection(range);
+  return true;
+}
+
+function execIframeCmd(cmd, value) {
+  if (!state.iframeDoc) return;
+  state.iframeDoc.execCommand(cmd, false, value || null);
+  state.iframeBody.focus();
+  saveSelection();
+  recordHistorySnapshot();
+  setTimeout(updateToolbar, 50);
+}
+
+function adjustFontSize(delta) {
+  if (!state.iframeDoc) return;
+  const doc = state.iframeDoc;
+  const sel = doc.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+
+  const range = sel.getRangeAt(0);
+  const current = getSelectionFontSize(range);
+  if (!current) return;
+  const newSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, current + delta));
+
+  doc.execCommand('fontSize', false, '7');
+  const fonts = Array.from(state.iframeBody.querySelectorAll('font[size="7"]'));
+  let firstNode = null;
+  let lastNode = null;
+  fonts.forEach(f => {
+    const span = doc.createElement('span');
+    span.style.fontSize = newSize + 'px';
+    while (f.firstChild) span.appendChild(f.firstChild);
+    f.replaceWith(span);
+    if (!firstNode) firstNode = span;
+    lastNode = span;
+    span.querySelectorAll('[style*="font-size"]').forEach(child => {
+      child.style.fontSize = '';
+    });
+  });
+
+  restoreSelectionAroundNodes(firstNode, lastNode);
+  setTimeout(updateToolbar, 50);
+}
+
+function applyFontSize(px) {
+  if (!state.iframeDoc) return;
+  const doc = state.iframeDoc;
+  const sel = doc.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  if (!Number.isFinite(px)) return;
+
+  const nextSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, px));
+
+  doc.execCommand('fontSize', false, '7');
+  const fonts = Array.from(state.iframeBody.querySelectorAll('font[size="7"]'));
+  let firstNode = null;
+  let lastNode = null;
+  fonts.forEach(f => {
+    const span = doc.createElement('span');
+    span.style.fontSize = nextSize + 'px';
+    while (f.firstChild) span.appendChild(f.firstChild);
+    f.replaceWith(span);
+    if (!firstNode) firstNode = span;
+    lastNode = span;
+    span.querySelectorAll('[style*="font-size"]').forEach(child => {
+      child.style.fontSize = '';
+    });
+  });
+
+  restoreSelectionAroundNodes(firstNode, lastNode);
+  setTimeout(updateToolbar, 50);
+}
+
+function applyLineHeight(value) {
+  if (!state.iframeDoc) return;
+  const sel = state.iframeDoc.getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  let node = range.commonAncestorContainer;
+  if (node.nodeType === 3) node = node.parentElement;
+  const block = node.closest('h1,h2,h3,h4,p,div,li,td,th') || node;
+  if (block) {
+    block.style.lineHeight = value || '';
+  }
+  saveSelection(range);
+  recordHistorySnapshot();
+  setTimeout(updateToolbar, 50);
+}
+
+// Hide toolbar when clicking outside
+document.addEventListener('mousedown', (e) => {
+  const target = e.target;
+  const clickedToolbar = floatingToolbar.contains(target);
+  const clickedPreviewShell = previewPane.contains(target);
+  const clickedSource = sourcePane.contains(target);
+
+  if (clickedToolbar) return;
+
+  if (clickedSource) {
+    dismissSelection();
+    return;
+  }
+
+  if (clickedPreviewShell && target === previewPane) {
+    dismissSelection();
+    return;
+  }
+
+  if (!clickedPreviewShell) {
+    dismissSelection();
+  }
+});
+
+previewPane.addEventListener('mousedown', (e) => {
+  if (e.target === previewPane) {
+    dismissSelection();
+  }
+});
+
+/* =============================================
+   Media Selection & Wrapping
+   ============================================= */
+function selectMedia(el, type) {
+  if (!state.iframeDoc) return;
+  deselectMedia();
+
+  el.classList.add('selected-media');
+
+  // Wrap in media-wrapper
+  let wrapper = el.parentElement;
+  if (!wrapper || !wrapper.classList.contains('media-wrapper')) {
+    wrapper = state.iframeDoc.createElement('span');
+    wrapper.className = 'media-wrapper';
+    wrapper.setAttribute('contenteditable', 'false');
+    wrapper.style.display = 'inline-block';
+    el.parentNode.insertBefore(wrapper, el);
+    wrapper.appendChild(el);
+  } else {
+    wrapper.setAttribute('contenteditable', 'false');
+  }
+
+  addResizeHandles(wrapper);
+  addReplaceButton(wrapper, type);
+
+  state.selectedMedia = el;
+  state.mediaWrapper = wrapper;
+}
+
+function deselectMedia() {
+  if (state.selectedMedia) {
+    state.selectedMedia.classList.remove('selected-media');
+  }
+  if (state.mediaWrapper) {
+    removeResizeHandles(state.mediaWrapper);
+    removeReplaceButton(state.mediaWrapper);
+    // Unwrap
+    const media = state.mediaWrapper.querySelector('img, video');
+    if (media && state.mediaWrapper.parentElement) {
+      state.mediaWrapper.parentElement.insertBefore(media, state.mediaWrapper);
+      state.mediaWrapper.remove();
+    }
+  }
+  state.selectedMedia = null;
+  state.mediaWrapper = null;
+}
+
+function addResizeHandles(wrapper) {
+  removeResizeHandles(wrapper);
+  const dirs = ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'];
+  dirs.forEach(dir => {
+    const handle = state.iframeDoc.createElement('div');
+    handle.className = `resize-handle ${dir}`;
+    handle.addEventListener('mousedown', (e) => startResize(e, dir, wrapper));
+    wrapper.appendChild(handle);
+  });
+}
+
+function removeResizeHandles(wrapper) {
+  wrapper.querySelectorAll('.resize-handle').forEach(h => h.remove());
+}
+
+function addReplaceButton(wrapper, type) {
+  removeReplaceButton(wrapper);
+  const btn = state.iframeDoc.createElement('button');
+  btn.className = 'media-replace-btn';
+  btn.textContent = '+';
+  btn.title = type === 'image' ? '替换图片' : '替换视频';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const media = wrapper.querySelector('img, video');
+    if (media) {
+      if (type === 'image') triggerImageReplace(media);
+      else triggerVideoReplace(media);
+    }
+  });
+  wrapper.appendChild(btn);
+}
+
+function removeReplaceButton(wrapper) {
+  const btn = wrapper.querySelector('.media-replace-btn');
+  if (btn) btn.remove();
+}
+
+/* =============================================
+   Media Resize
+   ============================================= */
+function startResize(e, dir, wrapper) {
+  e.preventDefault();
+  e.stopPropagation();
+  const media = wrapper.querySelector('img, video');
+  state.resizeDir = dir;
+  state.resizeStartX = e.clientX;
+  state.resizeStartY = e.clientY;
+  state.resizeStartW = media.offsetWidth;
+  state.resizeStartH = media.offsetHeight;
+
+  document.addEventListener('mousemove', onResize);
+  document.addEventListener('mouseup', stopResize);
+}
+
+function onResize(e) {
+  const dx = e.clientX - state.resizeStartX;
+  const dy = e.clientY - state.resizeStartY;
+  const media = state.mediaWrapper?.querySelector('img, video');
+  if (!media) return;
+
+  let nw = state.resizeStartW;
+  let nh = state.resizeStartH;
+  const dir = state.resizeDir;
+  const aspect = state.resizeStartW / state.resizeStartH;
+
+  if (dir.includes('e')) nw = state.resizeStartW + dx;
+  if (dir.includes('w')) nw = state.resizeStartW - dx;
+  if (dir.includes('s')) nh = state.resizeStartH + dy;
+  if (dir.includes('n')) nh = state.resizeStartH - dy;
+
+  if (dir === 'nw' || dir === 'ne' || dir === 'sw' || dir === 'se') {
+    nw = Math.max(40, nw);
+    nh = nw / aspect;
+  } else if (dir === 'e' || dir === 'w') {
+    nw = Math.max(40, nw);
+    nh = media.offsetHeight;
+  } else {
+    nh = Math.max(40, nh);
+    nw = media.offsetWidth;
+  }
+
+  media.style.width = `${Math.max(40, nw)}px`;
+  media.style.height = 'auto';
+  if (dir === 'n' || dir === 's') {
+    media.style.height = `${Math.max(40, nh)}px`;
+    media.style.width = 'auto';
+  }
+}
+
+function stopResize() {
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+  state.resizeDir = null;
+}
+
+/* =============================================
+   Trigger Image/Video Insert & Replace
+   ============================================= */
+function triggerImageInsert(target) {
+  state.pendingImageTarget = target;
+  $('#fileInputImage').click();
+}
+
+function triggerVideoInsert(target) {
+  state.pendingVideoTarget = target;
+  $('#fileInputVideo').click();
+}
+
+function triggerImageReplace(imgEl) {
+  state.pendingImageTarget = imgEl;
+  $('#fileInputImage').click();
+}
+
+function triggerVideoReplace(videoEl) {
+  state.pendingVideoTarget = videoEl;
+  $('#fileInputVideo').click();
+}
+
+$('#fileInputImage').addEventListener('change', function () {
+  const file = this.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const target = state.pendingImageTarget;
+
+  if (target && target.tagName === 'IMG') {
+    const oldUrl = target.src;
+    target.src = url;
+    if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
+    target.style.width = '';
+    target.style.height = '';
+    showToast('图片已替换');
+  } else if (target && state.iframeDoc) {
+    const img = state.iframeDoc.createElement('img');
+    img.src = url;
+    img.alt = file.name;
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    // Replace placeholder content
+    const placeholder = target.querySelector('.placeholder-media');
+    if (placeholder) {
+      placeholder.replaceWith(img);
+    } else {
+      target.innerHTML = '';
+      target.appendChild(img);
+    }
+    showToast('图片已插入');
+  }
+
+  this.value = '';
+  state.pendingImageTarget = null;
+});
+
+$('#fileInputVideo').addEventListener('change', function () {
+  const file = this.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const target = state.pendingVideoTarget;
+
+  if (target && target.tagName === 'VIDEO') {
+    const oldUrl = target.src;
+    target.src = url;
+    if (oldUrl && oldUrl.startsWith('blob:')) URL.revokeObjectURL(oldUrl);
+    target.style.width = '';
+    target.style.height = '';
+    showToast('视频已替换');
+  } else if (target && state.iframeDoc) {
+    const video = state.iframeDoc.createElement('video');
+    video.src = url;
+    video.controls = true;
+    video.style.width = '100%';
+    video.style.height = '100%';
+    video.style.objectFit = 'cover';
+    const placeholder = target.querySelector('.placeholder-media');
+    if (placeholder) {
+      placeholder.replaceWith(video);
+    } else {
+      target.innerHTML = '';
+      target.appendChild(video);
+    }
+    showToast('视频已插入');
+  }
+
+  this.value = '';
+  state.pendingVideoTarget = null;
+});
+
+/* =============================================
+   File Operations
+   ============================================= */
+
+// Open Folder
+$('#btnOpenFolder').addEventListener('click', async () => {
+  try {
+    if (!window.showDirectoryPicker) {
+      if (window.showOpenFilePicker) {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+        });
+        const file = await handle.getFile();
+        await setCurrentFileContext({
+          fileHandle: handle,
+          fileName: handle.name,
+          dirHandle: null,
+          dirName: '',
+        });
+        loadEditorContent(await file.text());
+        showToast(`已打开: ${handle.name}`);
+      } else {
+        $('#fileInputHTML').click();
+      }
+      return;
+    }
+
+    state.currentDirHandle = await window.showDirectoryPicker();
+    state.currentDirName = state.currentDirHandle.name;
+    updateStatusPath();
+    showToast(`已打开文件夹: ${state.currentDirHandle.name}`);
+
+    // Try to find and load index.html
+    try {
+      const indexHandle = await state.currentDirHandle.getFileHandle('index.html');
+      const file = await indexHandle.getFile();
+      await setCurrentFileContext({
+        fileHandle: indexHandle,
+        fileName: indexHandle.name,
+        dirHandle: state.currentDirHandle,
+        dirName: state.currentDirName,
+      });
+      loadEditorContent(await file.text());
+      showToast('已加载: index.html');
+    } catch {
+      // List HTML files
+      const htmlFiles = [];
+      for await (const [name, handle] of state.currentDirHandle.entries()) {
+        if (name.endsWith('.html') || name.endsWith('.htm')) {
+          htmlFiles.push({ name, handle });
+        }
+      }
+      if (htmlFiles.length >= 1) {
+        const file = await htmlFiles[0].handle.getFile();
+        await setCurrentFileContext({
+          fileHandle: htmlFiles[0].handle,
+          fileName: htmlFiles[0].name,
+          dirHandle: state.currentDirHandle,
+          dirName: state.currentDirName,
+        });
+        loadEditorContent(await file.text());
+        showToast(`已加载: ${htmlFiles[0].name}`);
+      } else {
+        showToast('文件夹中没有 HTML 文件');
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error(err);
+      $('#fileInputHTML').click();
+    }
+  }
+});
+
+// Legacy file input fallback
+$('#fileInputHTML').addEventListener('change', async function () {
+  const file = this.files[0];
+  if (!file) return;
+  const text = await file.text();
+  await setCurrentFileContext({
+    fileHandle: null,
+    fileName: file.name,
+    dirHandle: null,
+    dirName: '',
+  });
+  loadEditorContent(text);
+  showToast(`已加载: ${file.name}`);
+  this.value = '';
+});
+
+// Overwrite source file
+$('#btnOverwrite').addEventListener('click', async () => {
+  await overwriteFile();
+});
+
+async function overwriteFile() {
+  const html = getCurrentEditorHTML();
+  if (state.currentFileHandle && state.currentFileHandle.createWritable) {
+    try {
+      const granted = await requestHandlePermission(state.currentFileHandle, 'readwrite');
+      if (!granted) {
+        showToast('未获得文件写入权限');
+        return;
+      }
+      const writable = await state.currentFileHandle.createWritable();
+      await writable.write(html);
+      await writable.close();
+      persistHtmlSnapshot(html);
+      showToast('已覆盖源文件');
+    } catch (err) {
+      showToast('覆盖失败: ' + err.message);
+    }
+  } else {
+    downloadFile('index.html', html);
+    persistHtmlSnapshot(html);
+    showToast('已导出（无源文件引用，使用下载替代）');
+  }
+}
+
+// Export new file
+$('#btnExport').addEventListener('click', async () => {
+  const html = getCurrentEditorHTML();
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'exported.html',
+        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(html);
+      await writable.close();
+      showToast('文件已导出');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        downloadFile('exported.html', html);
+      }
+    }
+  } else {
+    downloadFile('exported.html', html);
+    showToast('文件已导出');
+  }
+});
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* =============================================
+   Toast
+   ============================================= */
+let toastTimer;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+/* =============================================
+   Keyboard Shortcuts
+   ============================================= */
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    overwriteFile();
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    undoEdit();
+  }
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    ((e.shiftKey && e.key.toLowerCase() === 'z') || e.key.toLowerCase() === 'y')
+  ) {
+    e.preventDefault();
+    redoEdit();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+    e.preventDefault();
+    if (state.isEditMode) {
+      switchMode('preview');
+    } else {
+      switchMode('edit');
+    }
+  }
+});
+
+/* =============================================
+   Init
+   ============================================= */
+window.addEventListener('beforeunload', () => {
+  persistHtmlSnapshot();
+  persistFileMeta();
+});
+
+bootstrapApp();
+
+async function bootstrapApp() {
+  const restored = await restoreLastSession();
+  if (!restored) {
+    initIframe();
+  }
+}
+</script>
+
+</body>
+</html>
