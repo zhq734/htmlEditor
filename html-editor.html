@@ -1544,7 +1544,9 @@ function restoreEditableButtons(root) {
 // 获取iframeHTML。
 function getIframeHTML() {
   if (!state.iframeDoc) return '';
-  return '<!DOCTYPE html>\n' + createIframeHTMLClone().outerHTML;
+  const clone = createIframeHTMLClone();
+  restorePreviewObjectUrlsInClone(clone);
+  return '<!DOCTYPE html>\n' + clone.outerHTML;
 }
 
 // 创建iframeHTMLClone。
@@ -1559,6 +1561,18 @@ function createSourceHTMLClone(html) {
   return sanitizeDocumentClone(doc.documentElement.cloneNode(true));
 }
 
+// 移除仅用于预览期的本地快照辅助痕迹。
+function stripLocalSnapshotPreviewArtifactsInClone(clone) {
+  if (!clone) return;
+  clone.querySelectorAll('#editor-local-snapshot-preview-style').forEach(el => el.remove());
+  clone.classList?.remove('editor-local-snapshot-mode');
+  clone.querySelectorAll('.editor-local-snapshot-mode').forEach(el => el.classList.remove('editor-local-snapshot-mode'));
+  const body = clone.querySelector('body');
+  if (body) {
+    body.classList.remove('editor-local-snapshot-mode');
+  }
+}
+
 // 判断元素节点。
 function isElementNode(node) {
   return !!node && node.nodeType === 1;
@@ -1567,11 +1581,15 @@ function isElementNode(node) {
 // 清洗文档克隆。
 function sanitizeDocumentClone(clone) {
   // Remove editor-injected elements
-  const toRemove = clone.querySelectorAll('#__editor_styles__, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
+  const toRemove = clone.querySelectorAll('#__editor_styles__, #editor-local-snapshot-preview-style, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
   toRemove.forEach(el => el.remove());
 
   // Remove editor classes
   clone.querySelectorAll('.selected-media').forEach(el => el.classList.remove('selected-media'));
+  clone.classList.remove('editor-local-snapshot-mode');
+  clone.querySelectorAll('html.editor-local-snapshot-mode, body.editor-local-snapshot-mode').forEach(el => {
+    el.classList.remove('editor-local-snapshot-mode');
+  });
 
   // Unwrap media-wrapper (keep inner img/video)
   clone.querySelectorAll('.media-wrapper').forEach(w => {
@@ -1603,7 +1621,20 @@ async function getExportHTML() {
     : (state.iframeDoc ? createIframeHTMLClone() : null);
   if (!clone) return '';
   restorePreviewObjectUrlsInClone(clone);
+  stripLocalSnapshotPreviewArtifactsInClone(clone);
   await embedMediaAssetsIntoClone(clone);
+  return '<!DOCTYPE html>\n' + clone.outerHTML;
+}
+
+// 获取可持久化的编辑器HTML。
+function getPersistableEditorHTML() {
+  if (state.isEditMode) {
+    return sourceArea.value || '';
+  }
+  if (!state.iframeDoc) return '';
+  const clone = createIframeHTMLClone();
+  restorePreviewObjectUrlsInClone(clone);
+  stripLocalSnapshotPreviewArtifactsInClone(clone);
   return '<!DOCTYPE html>\n' + clone.outerHTML;
 }
 
@@ -2549,7 +2580,7 @@ function isCurrentFileDirty() {
   if (!state.activeFolderFileKey || state.currentSourceType !== 'local' || !state.currentDirHandle) return false;
   const session = getFolderFileSession(state.activeFolderFileKey);
   if (!session) return false;
-  const currentHtml = getCurrentEditorHTML();
+  const currentHtml = getPersistableEditorHTML();
   return currentHtml !== (session.baseHtml || '');
 }
 
@@ -2557,7 +2588,7 @@ function isCurrentFileDirty() {
 function captureCurrentFileSession(options = {}) {
   const { schedulePersist: shouldSchedulePersist = true } = options;
   if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.activeFolderFileKey) return;
-  const currentHtml = getCurrentEditorHTML();
+  const currentHtml = getPersistableEditorHTML();
   if (!currentHtml) return;
 
   state.folderFileSessions[state.activeFolderFileKey] = {
@@ -2811,7 +2842,7 @@ function readPersistedFileMeta() {
 }
 
 // 持久化HTML快照。
-function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
+function persistHtmlSnapshot(html = getPersistableEditorHTML()) {
   if (!html) return;
 
   if (!shouldPersistHtmlSnapshot(html)) {
