@@ -38,6 +38,7 @@
    ============================================= */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
+[hidden] { display: none !important; }
 body {
   font-family: var(--font-ui);
   background: var(--bg);
@@ -267,6 +268,7 @@ body {
 }
 .hint-bar__mode {
   display: flex;
+  align-items: center;
   gap: 2px;
   background: var(--surface2);
   border-radius: var(--radius-sm);
@@ -288,6 +290,17 @@ body {
   color: #fff;
 }
 .mode-btn:hover:not(.active) { color: var(--fg); }
+.mode-btn--icon {
+  width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mode-btn--icon svg {
+  width: 14px;
+  height: 14px;
+}
 .hint-bar__tip {
   color: var(--muted);
   display: flex;
@@ -297,10 +310,134 @@ body {
 .hint-bar__tip span.dot { color: var(--accent); }
 
 /* =============================================
+   Workspace Shell / File Sidebar
+   ============================================= */
+.workspace-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.file-sidebar {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  transition: width var(--transition), border-color var(--transition);
+  overflow: hidden;
+}
+.workspace-shell.sidebar-hidden .file-sidebar {
+  width: 0;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
+}
+.file-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  min-height: 52px;
+}
+.file-sidebar__title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.file-sidebar__title {
+  color: var(--fg-bright);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.file-sidebar__meta {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-sidebar__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 6px 10px;
+}
+.file-sidebar__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+.file-sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.file-sidebar__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.file-sidebar__item:hover {
+  background: var(--surface2);
+  border-color: var(--border);
+}
+.file-sidebar__item.active {
+  background: var(--accent-soft);
+  border-color: rgba(232,145,58,0.35);
+  color: var(--fg-bright);
+}
+.file-sidebar__icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.file-sidebar__name {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-sidebar__dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(232,145,58,0.16);
+}
+
+/* =============================================
    Editor Container
    ============================================= */
 .editor-container {
   flex: 1;
+  min-width: 0;
   display: flex;
   overflow: hidden;
   position: relative;
@@ -654,6 +791,9 @@ body {
    ============================================= */
 @media (max-width: 900px) {
   .menu-bar__actions .btn span { display: none; }
+  .file-sidebar {
+    width: 220px;
+  }
   .floating-toolbar { flex-wrap: wrap; max-width: 90vw; }
 }
 </style>
@@ -707,6 +847,9 @@ body {
   <div class="hint-bar__mode">
     <button class="mode-btn active" data-mode="preview" id="modePreview">预览</button>
     <button class="mode-btn" data-mode="edit" id="modeEdit">编辑</button>
+    <button class="mode-btn mode-btn--icon" id="btnToggleSidebar" title="隐藏文件列表" aria-label="隐藏文件列表">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75H2.75A.75.75 0 0 1 2 13.25V2.75zm1 .25v10h3.5V3H3zm4.5 10h5.5V3H7.5v10z"/></svg>
+    </button>
   </div>
   <div class="hint-bar__tip">
     <span class="dot">&#x25CF;</span> 点击文字可直接编辑
@@ -717,22 +860,36 @@ body {
 <!-- =============================================
      Editor Container
      ============================================= -->
-<div class="editor-container" id="editorContainer">
-  <!-- Preview Pane -->
-  <div class="editor-pane editor-pane--preview" id="previewPane">
-    <iframe class="preview-iframe" id="previewIframe" sandbox="allow-scripts allow-same-origin"></iframe>
-  </div>
-
-  <!-- Gutter -->
-  <div class="gutter" id="gutter"></div>
-
-  <!-- Source Pane -->
-  <div class="editor-pane editor-pane--source" id="sourcePane">
-    <div class="source-panel-header">
-      <span>&lt;/&gt; HTML 源码</span>
-      <span style="font-size:10px;color:var(--muted)">实时同步</span>
+<div class="workspace-shell" id="workspaceShell">
+  <aside class="file-sidebar" id="fileSidebar">
+    <div class="file-sidebar__header">
+      <div class="file-sidebar__title-wrap">
+        <div class="file-sidebar__title">文件列表</div>
+        <div class="file-sidebar__meta" id="fileSidebarMeta">未打开文件夹</div>
+      </div>
     </div>
-    <textarea class="source-area" id="sourceArea" spellcheck="false"></textarea>
+    <div class="file-sidebar__body">
+      <div class="file-sidebar__empty" id="fileSidebarEmpty">打开本地文件夹后，这里会列出目录中的 HTML 文件。</div>
+      <div class="file-sidebar__list" id="fileSidebarList" hidden></div>
+    </div>
+  </aside>
+  <div class="editor-container" id="editorContainer">
+    <!-- Preview Pane -->
+    <div class="editor-pane editor-pane--preview" id="previewPane">
+      <iframe class="preview-iframe" id="previewIframe" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+
+    <!-- Gutter -->
+    <div class="gutter" id="gutter"></div>
+
+    <!-- Source Pane -->
+    <div class="editor-pane editor-pane--source" id="sourcePane">
+      <div class="source-panel-header">
+        <span>&lt;/&gt; HTML 源码</span>
+        <span style="font-size:10px;color:var(--muted)">实时同步</span>
+      </div>
+      <textarea class="source-area" id="sourceArea" spellcheck="false"></textarea>
+    </div>
   </div>
 </div>
 
@@ -939,6 +1096,11 @@ const state = {
   urlDialogOpen: false,
   isFetchingUrl: false,
   renderedImportSessionId: '',
+  folderHtmlFiles: [],
+  folderFileSessions: {},
+  activeFolderFileKey: '',
+  isFileSidebarCollapsed: false,
+  currentFileBaseHtml: '',
 };
 
 /* =============================================
@@ -949,6 +1111,12 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 const previewIframe = $('#previewIframe');
 const sourceArea = $('#sourceArea');
+const workspaceShell = $('#workspaceShell');
+const fileSidebar = $('#fileSidebar');
+const fileSidebarMeta = $('#fileSidebarMeta');
+const fileSidebarEmpty = $('#fileSidebarEmpty');
+const fileSidebarList = $('#fileSidebarList');
+const btnToggleSidebar = $('#btnToggleSidebar');
 const editorContainer = $('#editorContainer');
 const previewPane = $('#previewPane');
 const sourcePane = $('#sourcePane');
@@ -1015,15 +1183,20 @@ const STORAGE_KEYS = {
   lastFileMeta: 'htmlEditor.lastFileMeta',
   lastHtmlSnapshot: 'htmlEditor.lastHtmlSnapshot',
   lastHtmlSessionSnapshot: 'htmlEditor.lastHtmlSessionSnapshot',
+  fileSidebarCollapsed: 'htmlEditor.fileSidebarCollapsed',
 };
 const HANDLE_DB_NAME = 'htmlEditorHandles';
-const HANDLE_DB_VERSION = 2;
+const HANDLE_DB_VERSION = 3;
 const HANDLE_STORE_NAME = 'handles';
 const SNAPSHOT_STORE_NAME = 'snapshots';
+const FOLDER_SESSION_STORE_NAME = 'folderSessions';
 const HANDLE_LAST_FILE_KEY = 'lastFileHandle';
+const HANDLE_LAST_DIR_KEY = 'lastDirHandle';
 const SNAPSHOT_LAST_HTML_KEY = 'lastHtmlSnapshot';
+const SNAPSHOT_LAST_FOLDER_SESSION_KEY = 'lastFolderSession';
 const MAX_PERSISTED_SNAPSHOT_LENGTH = 2500000;
 let persistSnapshotTimer = 0;
+let persistFolderSessionTimer = 0;
 const MAX_HISTORY_ENTRIES = 80;
 
 initToolbarControls();
@@ -1665,27 +1838,24 @@ function switchMode(mode) {
       recordHistorySnapshot({ immediate: true });
       state.isEditMode = true;
       state.iframeReady = false;
-      previewPane.style.display = 'none';
-      editorContainer.classList.add('edit-mode');
       floatingToolbar.classList.remove('visible');
     }
+    applyEditorLayoutFromState(sourceArea.value);
     $('#modeEdit').classList.add('active');
     $('#modePreview').classList.remove('active');
     sourceArea.focus();
+    scheduleFolderSessionPersist();
   } else {
     // Render source back to iframe
     if (state.isEditMode) {
       initIframe(sourceArea.value);
       recordHistorySnapshot({ immediate: true, force: true });
       state.isEditMode = false;
-      previewPane.style.display = '';
-      editorContainer.classList.remove('edit-mode');
-      if (state.isSourceMode) {
-        editorContainer.classList.add('split');
-      }
     }
+    applyEditorLayoutFromState();
     $('#modePreview').classList.add('active');
     $('#modeEdit').classList.remove('active');
+    scheduleFolderSessionPersist();
   }
 }
 
@@ -1698,20 +1868,13 @@ $('#btnSource').addEventListener('click', () => {
 
   if (state.isSourceMode) {
     sourceArea.value = getIframeHTML();
-    sourcePane.style.display = '';
-    gutter.style.display = 'flex';
-    editorContainer.classList.add('split');
-    sourcePane.style.flex = '1';
-    previewPane.style.flex = '1';
+    applyEditorLayoutFromState(sourceArea.value);
     showToast('源码分栏已开启');
   } else {
-    sourcePane.style.display = 'none';
-    gutter.style.display = 'none';
-    sourcePane.style.flex = '';
-    previewPane.style.flex = '';
-    editorContainer.classList.remove('split');
+    applyEditorLayoutFromState();
     showToast('源码分栏已关闭');
   }
+  scheduleFolderSessionPersist();
 });
 
 // Sync source changes back to iframe
@@ -1727,6 +1890,253 @@ function getCurrentEditorHTML() {
   return state.isEditMode ? sourceArea.value : getIframeHTML();
 }
 
+function normalizeFolderFileName(name) {
+  return String(name || '').trim();
+}
+
+function normalizeFolderRelativePath(path) {
+  return normalizeFolderFileName(path).replace(/\\/g, '/');
+}
+
+function createFolderFileKey(path) {
+  return normalizeFolderRelativePath(path).toLowerCase();
+}
+
+function sortFolderHtmlFiles(files) {
+  return [...files].sort((a, b) => {
+    const aName = String(a?.relativePath || a?.name || '').toLowerCase();
+    const bName = String(b?.relativePath || b?.name || '').toLowerCase();
+    const aIndex = aName === 'index.html' ? 0 : 1;
+    const bIndex = bName === 'index.html' ? 0 : 1;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return aName.localeCompare(bName, 'zh-Hans-CN', { numeric: true });
+  });
+}
+
+function cloneMediaAssetStore(store = state.mediaAssetStore) {
+  const nextStore = {};
+  Object.entries(store || {}).forEach(([assetId, asset]) => {
+    nextStore[assetId] = asset ? { ...asset } : asset;
+  });
+  return nextStore;
+}
+
+async function serializeMediaAssetStore(store = state.mediaAssetStore) {
+  const serialized = {};
+  for (const [assetId, asset] of Object.entries(store || {})) {
+    if (!asset) continue;
+    let dataUrl = asset.dataUrl || '';
+    if (!dataUrl && asset.previewUrl?.startsWith('data:')) {
+      dataUrl = asset.previewUrl;
+    }
+    if (!dataUrl && asset.file) {
+      try {
+        dataUrl = await resolveMediaAssetDataURL(asset);
+      } catch (err) {
+        console.warn('序列化媒体资源失败', err);
+      }
+    }
+    if (!dataUrl) continue;
+    serialized[assetId] = {
+      kind: asset.kind || '',
+      fileName: asset.fileName || '',
+      dataUrl,
+    };
+  }
+  return serialized;
+}
+
+function clonePersistedMediaAssetStore(store = {}) {
+  const nextStore = {};
+  Object.entries(store || {}).forEach(([assetId, asset]) => {
+    if (!asset) return;
+    nextStore[assetId] = {
+      kind: asset.kind || '',
+      file: null,
+      fileName: asset.fileName || '',
+      previewUrl: asset.dataUrl || '',
+      dataUrl: asset.dataUrl || '',
+    };
+  });
+  return nextStore;
+}
+
+function getFolderFileSession(fileKey) {
+  return fileKey ? state.folderFileSessions[fileKey] || null : null;
+}
+
+function isCurrentFileDirty() {
+  if (!state.activeFolderFileKey || state.currentSourceType !== 'local' || !state.currentDirHandle) return false;
+  const session = getFolderFileSession(state.activeFolderFileKey);
+  if (!session) return false;
+  const currentHtml = getCurrentEditorHTML();
+  return currentHtml !== (session.baseHtml || '');
+}
+
+function captureCurrentFileSession(options = {}) {
+  const { schedulePersist: shouldSchedulePersist = true } = options;
+  if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.activeFolderFileKey) return;
+  const currentHtml = getCurrentEditorHTML();
+  if (!currentHtml) return;
+
+  state.folderFileSessions[state.activeFolderFileKey] = {
+    key: state.activeFolderFileKey,
+    fileName: state.currentFileName || '',
+    html: currentHtml,
+    baseHtml: state.currentFileBaseHtml || '',
+    history: [...state.history],
+    historyIndex: state.historyIndex,
+    mediaAssetStore: cloneMediaAssetStore(),
+    nextMediaAssetId: state.nextMediaAssetId,
+    preserveLocalInteractions: state.preserveLocalInteractions,
+    isSourceMode: state.isSourceMode,
+    isEditMode: state.isEditMode,
+    updatedAt: Date.now(),
+  };
+  if (shouldSchedulePersist) {
+    scheduleFolderSessionPersist();
+  }
+}
+
+function resetEditorSessionState() {
+  clearTimeout(state.historyDebounceTimer);
+  state.history = [];
+  state.historyIndex = -1;
+  state.isApplyingHistory = false;
+  state.recordHistoryOnLoad = false;
+  updateHistoryButtons();
+  dismissSelection();
+}
+
+function applyFileSessionState(session = null) {
+  if (session) {
+    state.history = Array.isArray(session.history) ? [...session.history] : [];
+    state.historyIndex = Number.isInteger(session.historyIndex) ? session.historyIndex : (state.history.length - 1);
+    state.mediaAssetStore = cloneMediaAssetStore(session.mediaAssetStore || {});
+    state.nextMediaAssetId = Number.isFinite(session.nextMediaAssetId) ? session.nextMediaAssetId : 1;
+    state.preserveLocalInteractions = Boolean(session.preserveLocalInteractions);
+    state.isSourceMode = Boolean(session.isSourceMode);
+    state.isEditMode = Boolean(session.isEditMode);
+  } else {
+    state.history = [];
+    state.historyIndex = -1;
+    clearMediaAssetStore();
+    state.nextMediaAssetId = 1;
+    state.preserveLocalInteractions = false;
+    state.isSourceMode = false;
+    state.isEditMode = false;
+  }
+  updateHistoryButtons();
+}
+
+function updateSidebarToggleIcon() {
+  if (!btnToggleSidebar) return;
+  btnToggleSidebar.innerHTML = state.isFileSidebarCollapsed
+    ? '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75H2.75A.75.75 0 0 1 2 13.25V2.75zm1 .25v10h3.5V3H3zm4.5 10h5.5V3H7.5v10z"/><path d="M9.646 5.146a.5.5 0 0 1 .708 0L12.207 7l-1.853 1.854a.5.5 0 1 1-.708-.708L10.793 7 9.646 5.854a.5.5 0 0 1 0-.708z"/></svg>'
+    : '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75H2.75A.75.75 0 0 1 2 13.25V2.75zm1 .25v10h3.5V3H3zm4.5 10h5.5V3H7.5v10z"/><path d="M10.354 5.146a.5.5 0 0 1 0 .708L9.207 7l1.147 1.146a.5.5 0 1 1-.708.708L7.793 7l1.853-1.854a.5.5 0 0 1 .708 0z"/></svg>';
+  btnToggleSidebar.title = state.isFileSidebarCollapsed ? '显示文件列表' : '隐藏文件列表';
+  btnToggleSidebar.setAttribute('aria-label', btnToggleSidebar.title);
+}
+
+function applySidebarCollapsedState() {
+  workspaceShell.classList.toggle('sidebar-hidden', state.isFileSidebarCollapsed);
+  updateSidebarToggleIcon();
+}
+
+function persistSidebarCollapsedState() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.fileSidebarCollapsed, state.isFileSidebarCollapsed ? '1' : '0');
+  } catch (err) {
+    console.warn('保存侧边栏状态失败', err);
+  }
+}
+
+function restoreSidebarCollapsedState() {
+  try {
+    state.isFileSidebarCollapsed = localStorage.getItem(STORAGE_KEYS.fileSidebarCollapsed) === '1';
+  } catch {
+    state.isFileSidebarCollapsed = false;
+  }
+  applySidebarCollapsedState();
+}
+
+function updateFileSidebarMeta() {
+  if (!state.currentDirHandle) {
+    fileSidebarMeta.textContent = '未打开文件夹';
+    return;
+  }
+  const total = state.folderHtmlFiles.length;
+  fileSidebarMeta.textContent = `${state.currentDirName || state.currentDirHandle.name || '当前文件夹'} · ${total} 个 HTML`;
+}
+
+function renderFileSidebar() {
+  updateFileSidebarMeta();
+
+  if (!state.currentDirHandle || state.folderHtmlFiles.length === 0) {
+    fileSidebarEmpty.hidden = false;
+    fileSidebarList.hidden = true;
+    fileSidebarList.innerHTML = '';
+    return;
+  }
+
+  fileSidebarEmpty.hidden = true;
+  fileSidebarList.hidden = false;
+  fileSidebarList.innerHTML = '';
+
+  state.folderHtmlFiles.forEach(fileItem => {
+    const fileKey = fileItem.key;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'file-sidebar__item';
+    button.classList.toggle('active', fileKey === state.activeFolderFileKey);
+    button.dataset.fileKey = fileKey;
+    button.title = fileItem.name;
+
+    const icon = document.createElement('span');
+    icon.className = 'file-sidebar__icon';
+    icon.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M3.75 1.5h5.19c.2 0 .39.08.53.22l2.81 2.81c.14.14.22.33.22.53v7.19A1.75 1.75 0 0 1 10.75 14h-7A1.75 1.75 0 0 1 2 12.25v-9A1.75 1.75 0 0 1 3.75 1.5zm4.69 1H3.75A.75.75 0 0 0 3 3.25v9c0 .41.34.75.75.75h7a.75.75 0 0 0 .75-.75V5.56H9.75A1.25 1.25 0 0 1 8.5 4.31V2.5zm1.06.7v1.11c0 .14.11.25.25.25h1.11L9.5 3.2z"/></svg>';
+
+    const name = document.createElement('span');
+    name.className = 'file-sidebar__name';
+    name.textContent = fileItem.name;
+
+    button.appendChild(icon);
+    button.appendChild(name);
+
+    const session = getFolderFileSession(fileKey);
+    const isDirty = fileKey === state.activeFolderFileKey
+      ? Boolean(state.currentDirHandle && state.currentSourceType === 'local' && getCurrentEditorHTML() !== (state.currentFileBaseHtml || ''))
+      : Boolean(session && session.html !== (session.baseHtml || ''));
+    if (isDirty) {
+      const dirty = document.createElement('span');
+      dirty.className = 'file-sidebar__dirty';
+      button.appendChild(dirty);
+    }
+
+    fileSidebarList.appendChild(button);
+  });
+}
+
+btnToggleSidebar.addEventListener('click', () => {
+  state.isFileSidebarCollapsed = !state.isFileSidebarCollapsed;
+  applySidebarCollapsedState();
+  persistSidebarCollapsedState();
+});
+
+fileSidebarList.addEventListener('click', async (e) => {
+  const item = e.target.closest('.file-sidebar__item');
+  if (!item) return;
+  const fileKey = item.dataset.fileKey || '';
+  if (!fileKey || fileKey === state.activeFolderFileKey) return;
+
+  try {
+    await activateFolderFile(fileKey);
+  } catch (err) {
+    console.error(err);
+    showToast(`切换文件失败: ${err.message}`);
+  }
+});
+
 function updateStatusPath() {
   if (state.currentSourceType === 'url' && state.currentSourceUrl) {
     statusPath.textContent = state.currentSourceUrl;
@@ -1741,6 +2151,46 @@ function updateStatusPath() {
   statusPath.textContent = fileName || dirName || '未打开文件夹';
 }
 
+function applyEditorLayoutFromState(currentHtml = '') {
+  const previewModeBtn = $('#modePreview');
+  const editModeBtn = $('#modeEdit');
+
+  if (state.isEditMode) {
+    if (currentHtml) {
+      sourceArea.value = currentHtml;
+    }
+    previewPane.style.display = 'none';
+    sourcePane.style.display = '';
+    sourcePane.style.flex = '1';
+    previewPane.style.flex = '';
+    gutter.style.display = 'none';
+    editorContainer.classList.add('edit-mode');
+    editorContainer.classList.toggle('split', state.isSourceMode);
+    editModeBtn.classList.add('active');
+    previewModeBtn.classList.remove('active');
+    return;
+  }
+
+  previewPane.style.display = '';
+  editorContainer.classList.remove('edit-mode');
+  previewModeBtn.classList.add('active');
+  editModeBtn.classList.remove('active');
+
+  if (state.isSourceMode) {
+    sourcePane.style.display = '';
+    gutter.style.display = 'flex';
+    sourcePane.style.flex = '1';
+    previewPane.style.flex = '1';
+    editorContainer.classList.add('split');
+  } else {
+    sourcePane.style.display = 'none';
+    gutter.style.display = 'none';
+    sourcePane.style.flex = '';
+    previewPane.style.flex = '';
+    editorContainer.classList.remove('split');
+  }
+}
+
 function persistFileMeta() {
   try {
     localStorage.setItem(STORAGE_KEYS.lastFileMeta, JSON.stringify({
@@ -1748,6 +2198,10 @@ function persistFileMeta() {
       dirName: state.currentDirName || state.currentDirHandle?.name || '',
       sourceUrl: state.currentSourceUrl || '',
       sourceType: state.currentSourceType || 'local',
+      activeFolderFileKey: state.activeFolderFileKey || '',
+      folderHtmlFiles: Array.isArray(state.folderHtmlFiles)
+        ? state.folderHtmlFiles.map(item => item.relativePath || item.name)
+        : [],
     }));
   } catch (err) {
     console.warn('保存文件信息失败', err);
@@ -1844,6 +2298,114 @@ async function readPersistedHtmlSnapshot() {
   }
 }
 
+function hydrateSessionHtmlWithPersistedMedia(html, mediaAssetStore = {}) {
+  const text = String(html || '').trim();
+  if (!text || !text.includes('data-editor-media-id=')) return String(html || '');
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'text/html');
+  doc.querySelectorAll('[data-editor-media-id]').forEach(node => {
+    const assetId = node.getAttribute('data-editor-media-id');
+    const asset = assetId ? mediaAssetStore[assetId] : null;
+    const src = asset?.dataUrl || '';
+    if (!src) return;
+    if (asset.kind === 'image' && node.tagName === 'IMG') {
+      prepareImageElementSource(node, src, asset.fileName);
+      return;
+    }
+    if (asset.kind === 'video' && node.tagName === 'VIDEO') {
+      prepareVideoElementSource(node, src);
+    }
+  });
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
+async function buildPersistedFolderSessionPayload() {
+  if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.folderHtmlFiles.length) {
+    return null;
+  }
+
+  const sessions = {};
+  for (const [fileKey, session] of Object.entries(state.folderFileSessions || {})) {
+    if (!session?.html) continue;
+    const mediaAssetStore = await serializeMediaAssetStore(session.mediaAssetStore || {});
+    sessions[fileKey] = {
+      key: session.key || fileKey,
+      fileName: session.fileName || '',
+      html: hydrateSessionHtmlWithPersistedMedia(session.html, mediaAssetStore),
+      baseHtml: session.baseHtml || '',
+      history: Array.isArray(session.history) ? [...session.history] : [],
+      historyIndex: Number.isInteger(session.historyIndex) ? session.historyIndex : -1,
+      mediaAssetStore,
+      nextMediaAssetId: Number.isFinite(session.nextMediaAssetId) ? session.nextMediaAssetId : 1,
+      preserveLocalInteractions: Boolean(session.preserveLocalInteractions),
+      isSourceMode: Boolean(session.isSourceMode),
+      isEditMode: Boolean(session.isEditMode),
+      updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now(),
+    };
+  }
+
+  return {
+    dirName: state.currentDirName || state.currentDirHandle.name || '',
+    activeFolderFileKey: state.activeFolderFileKey || '',
+    folderHtmlFiles: state.folderHtmlFiles.map(item => ({
+      key: item.key,
+      name: item.name,
+      relativePath: item.relativePath || item.name,
+    })),
+    sessions,
+    savedAt: Date.now(),
+  };
+}
+
+function scheduleFolderSessionPersist() {
+  clearTimeout(persistFolderSessionTimer);
+  persistFolderSessionTimer = window.setTimeout(() => {
+    void persistFolderSessionState();
+  }, 180);
+}
+
+async function persistFolderSessionState() {
+  captureCurrentFileSession({ schedulePersist: false });
+  const payload = await buildPersistedFolderSessionPayload();
+  if (!payload) {
+    await clearStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY);
+    return;
+  }
+  await setStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY, payload);
+}
+
+async function readPersistedFolderSession() {
+  try {
+    return await getStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function applyPersistedFolderSessions(persisted = null, htmlFiles = []) {
+  if (!persisted?.sessions) return;
+  const availableKeys = new Set(htmlFiles.map(item => item.key));
+  Object.entries(persisted.sessions).forEach(([fileKey, session]) => {
+    if (!availableKeys.has(fileKey) || !session?.html) return;
+    const mediaAssetStore = session.mediaAssetStore || {};
+    state.folderFileSessions[fileKey] = {
+      key: session.key || fileKey,
+      fileName: session.fileName || '',
+      html: hydrateSessionHtmlWithPersistedMedia(session.html, mediaAssetStore),
+      baseHtml: session.baseHtml || '',
+      history: Array.isArray(session.history) ? [...session.history] : [],
+      historyIndex: Number.isInteger(session.historyIndex) ? session.historyIndex : -1,
+      mediaAssetStore: clonePersistedMediaAssetStore(mediaAssetStore),
+      nextMediaAssetId: Number.isFinite(session.nextMediaAssetId) ? session.nextMediaAssetId : 1,
+      preserveLocalInteractions: Boolean(session.preserveLocalInteractions),
+      isSourceMode: Boolean(session.isSourceMode),
+      isEditMode: Boolean(session.isEditMode),
+      updatedAt: Number.isFinite(session.updatedAt) ? session.updatedAt : Date.now(),
+    };
+  });
+}
+
 function hasHeavyEmbeddedMediaData(html) {
   if (!html) return false;
   return /\b(?:src|poster)=["']data:(?:image|video)\/[^"']{4096,}["']/i.test(html);
@@ -1866,6 +2428,10 @@ function scheduleSnapshotPersist(html) {
   persistSnapshotTimer = window.setTimeout(() => {
     persistHtmlSnapshot(html || getCurrentEditorHTML());
   }, 240);
+  if (state.currentDirHandle && state.currentSourceType === 'local' && state.activeFolderFileKey) {
+    renderFileSidebar();
+    scheduleFolderSessionPersist();
+  }
 }
 
 function hasInteractiveLocalContent(html) {
@@ -2084,6 +2650,7 @@ function applyHistoryEntry(html) {
   }
 
   dismissSelection();
+  scheduleFolderSessionPersist();
   setTimeout(() => {
     state.isApplyingHistory = false;
   }, 0);
@@ -2400,6 +2967,16 @@ async function importUrlSnapshot({ url, html }) {
   } catch (err) {
     console.warn('清理上次文件句柄失败', err);
   }
+  try {
+    await clearStoredHandle(HANDLE_LAST_DIR_KEY);
+  } catch (err) {
+    console.warn('清理上次文件夹句柄失败', err);
+  }
+  try {
+    await clearStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY);
+  } catch (err) {
+    console.warn('清理文件夹会话失败', err);
+  }
 
   persistFileMeta();
   loadEditorContent(normalizeFetchedHtml(html, normalizedUrl));
@@ -2455,6 +3032,9 @@ function loadEditorContent(html, options = {}) {
   persistHtmlSnapshot(html);
   persistFileMeta();
   updateStatusPath();
+  if (state.currentDirHandle && state.currentSourceType === 'local' && state.activeFolderFileKey) {
+    scheduleFolderSessionPersist();
+  }
   statusInfo.textContent = state.currentSourceType === 'url'
     ? 'URL 快照模式 — 可编辑快照 | 建议导出为新文件'
     : (state.preserveLocalInteractions
@@ -2553,6 +3133,9 @@ function openHandleDatabase() {
       if (!request.result.objectStoreNames.contains(SNAPSHOT_STORE_NAME)) {
         request.result.createObjectStore(SNAPSHOT_STORE_NAME);
       }
+      if (!request.result.objectStoreNames.contains(FOLDER_SESSION_STORE_NAME)) {
+        request.result.createObjectStore(FOLDER_SESSION_STORE_NAME);
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -2631,6 +3214,42 @@ async function clearStoredSnapshot(key) {
   });
 }
 
+async function setStoredFolderSession(key, payload) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(FOLDER_SESSION_STORE_NAME, 'readwrite');
+    tx.objectStore(FOLDER_SESSION_STORE_NAME).put(payload, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getStoredFolderSession(key) {
+  const db = await openHandleDatabase();
+  if (!db) return null;
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(FOLDER_SESSION_STORE_NAME, 'readonly');
+    const request = tx.objectStore(FOLDER_SESSION_STORE_NAME).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function clearStoredFolderSession(key) {
+  const db = await openHandleDatabase();
+  if (!db) return;
+
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(FOLDER_SESSION_STORE_NAME, 'readwrite');
+    tx.objectStore(FOLDER_SESSION_STORE_NAME).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 async function queryHandlePermission(handle, mode = 'read') {
   if (!handle?.queryPermission) return true;
   try {
@@ -2649,7 +3268,168 @@ async function requestHandlePermission(handle, mode = 'readwrite') {
   }
 }
 
+async function getFolderHtmlFiles(dirHandle) {
+  if (!dirHandle?.entries) return [];
+
+  const files = [];
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle?.kind !== 'file') continue;
+    if (!/\.html?$/i.test(name)) continue;
+    files.push({
+      key: createFolderFileKey(name),
+      name,
+      relativePath: normalizeFolderRelativePath(name),
+      handle,
+    });
+  }
+  return sortFolderHtmlFiles(files);
+}
+
+async function persistCurrentFolderHandle() {
+  try {
+    if (state.currentDirHandle) {
+      await setStoredHandle(HANDLE_LAST_DIR_KEY, state.currentDirHandle);
+    } else {
+      await clearStoredHandle(HANDLE_LAST_DIR_KEY);
+    }
+  } catch (err) {
+    console.warn('保存文件夹句柄失败', err);
+  }
+}
+
+async function activateFolderFile(fileKey, options = {}) {
+  const { preserveSession = true, showToastMessage = true } = options;
+  if (!state.currentDirHandle || !fileKey) return false;
+
+  const target = state.folderHtmlFiles.find(item => item.key === fileKey);
+  if (!target?.handle) return false;
+
+  if (preserveSession && state.activeFolderFileKey && state.activeFolderFileKey !== fileKey) {
+    captureCurrentFileSession();
+  }
+
+  let nextHtml = '';
+  let nextBaseHtml = '';
+  let session = getFolderFileSession(fileKey);
+
+  if (session?.html) {
+    nextHtml = session.html;
+    nextBaseHtml = session.baseHtml || session.html;
+  } else {
+    const file = await target.handle.getFile();
+    nextBaseHtml = await file.text();
+    nextHtml = nextBaseHtml;
+    session = {
+      key: fileKey,
+      fileName: target.name,
+      html: nextHtml,
+      baseHtml: nextBaseHtml,
+      history: [],
+      historyIndex: -1,
+      mediaAssetStore: {},
+      nextMediaAssetId: 1,
+      preserveLocalInteractions: false,
+      isSourceMode: false,
+      isEditMode: false,
+      updatedAt: Date.now(),
+    };
+    state.folderFileSessions[fileKey] = session;
+  }
+
+  resetEditorSessionState();
+  applyFileSessionState(session);
+  state.activeFolderFileKey = fileKey;
+  state.currentFileBaseHtml = nextBaseHtml;
+
+  await setCurrentFileContext({
+    fileHandle: target.handle,
+    fileName: target.name,
+    dirHandle: state.currentDirHandle,
+    dirName: state.currentDirName,
+  });
+
+  loadEditorContent(nextHtml, { resetMediaAssets: false });
+  applyEditorLayoutFromState(nextHtml);
+
+  renderFileSidebar();
+  persistFileMeta();
+
+  if (showToastMessage) {
+    showToast(`已切换到: ${target.name}`);
+  }
+  return true;
+}
+
+async function openDirectoryHandle(dirHandle, options = {}) {
+  const { preferredFileKey = '', showToastMessage = true, revealSidebar = false } = options;
+  if (!dirHandle) return false;
+
+  const htmlFiles = await getFolderHtmlFiles(dirHandle);
+  const persistedFolderSession = await readPersistedFolderSession();
+  state.currentDirHandle = dirHandle;
+  state.currentDirName = dirHandle.name || '';
+  state.folderHtmlFiles = htmlFiles;
+  state.folderFileSessions = {};
+  state.activeFolderFileKey = '';
+  if (persistedFolderSession && persistedFolderSession.dirName === state.currentDirName) {
+    applyPersistedFolderSessions(persistedFolderSession, htmlFiles);
+  }
+  if (revealSidebar) {
+    state.isFileSidebarCollapsed = false;
+    applySidebarCollapsedState();
+    persistSidebarCollapsedState();
+  }
+
+  await persistCurrentFolderHandle();
+  updateStatusPath();
+  renderFileSidebar();
+
+  if (showToastMessage) {
+    showToast(`已打开文件夹: ${state.currentDirName}`);
+  }
+
+  if (!htmlFiles.length) {
+    state.currentFileHandle = null;
+    state.currentFileName = '';
+    persistFileMeta();
+    showToast('文件夹中没有 HTML 文件');
+    initIframe();
+    return false;
+  }
+
+  const fallbackFile = htmlFiles.find(item => item.key === createFolderFileKey('index.html')) || htmlFiles[0];
+  const persistedActiveFileKey = persistedFolderSession?.dirName === state.currentDirName
+    ? persistedFolderSession.activeFolderFileKey || ''
+    : '';
+  const nextFileKey = htmlFiles.some(item => item.key === preferredFileKey)
+    ? preferredFileKey
+    : htmlFiles.some(item => item.key === persistedActiveFileKey)
+      ? persistedActiveFileKey
+    : fallbackFile.key;
+
+  return activateFolderFile(nextFileKey, {
+    preserveSession: false,
+    showToastMessage: false,
+  });
+}
+
 async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName }) {
+  if (!dirHandle) {
+    state.folderHtmlFiles = [];
+    state.folderFileSessions = {};
+    state.activeFolderFileKey = '';
+    state.currentFileBaseHtml = '';
+    try {
+      await clearStoredHandle(HANDLE_LAST_DIR_KEY);
+    } catch (err) {
+      console.warn('清理文件夹句柄失败', err);
+    }
+    try {
+      await clearStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY);
+    } catch (err) {
+      console.warn('清理文件夹会话失败', err);
+    }
+  }
   state.currentFileHandle = fileHandle || null;
   state.currentDirHandle = dirHandle || null;
   state.currentFileName = fileName || fileHandle?.name || '';
@@ -2658,6 +3438,7 @@ async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName 
   state.currentSourceType = 'local';
   persistFileMeta();
   updateStatusPath();
+  renderFileSidebar();
 
   try {
     if (fileHandle) {
@@ -2672,12 +3453,48 @@ async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName 
 
 async function restoreLastSession() {
   const meta = readPersistedFileMeta();
+  const persistedSnapshot = await readPersistedHtmlSnapshot();
   if (meta) {
     state.currentFileName = meta.fileName || '';
     state.currentDirName = meta.dirName || '';
     state.currentSourceUrl = meta.sourceUrl || '';
     state.currentSourceType = meta.sourceType || 'local';
+    state.activeFolderFileKey = meta.activeFolderFileKey || '';
     updateStatusPath();
+  }
+
+  let dirHandle = null;
+  try {
+    dirHandle = await getStoredHandle(HANDLE_LAST_DIR_KEY);
+  } catch (err) {
+    console.warn('读取文件夹句柄失败', err);
+  }
+
+  if (dirHandle && await queryHandlePermission(dirHandle, 'read')) {
+    try {
+      const preferredFileKey = meta?.activeFolderFileKey || createFolderFileKey(meta?.fileName || '');
+      const opened = await openDirectoryHandle(dirHandle, {
+        preferredFileKey,
+        showToastMessage: false,
+      });
+      if (opened) {
+        if (persistedSnapshot && shouldPersistHtmlSnapshot(persistedSnapshot) && preferredFileKey === state.activeFolderFileKey) {
+          const session = getFolderFileSession(preferredFileKey);
+          if (session) {
+            session.html = persistedSnapshot;
+            session.preserveLocalInteractions = hasInteractiveLocalContent(persistedSnapshot);
+          }
+          loadEditorContent(persistedSnapshot, { resetMediaAssets: false });
+          applyEditorLayoutFromState(persistedSnapshot);
+          renderFileSidebar();
+          scheduleFolderSessionPersist();
+        }
+        showToast(`已恢复上次文件夹: ${state.currentDirName}`);
+        return true;
+      }
+    } catch (err) {
+      console.warn('恢复上次文件夹失败', err);
+    }
   }
 
   let handle = null;
@@ -2704,7 +3521,7 @@ async function restoreLastSession() {
     }
   }
 
-  const snapshot = await readPersistedHtmlSnapshot();
+  const snapshot = persistedSnapshot;
   if (snapshot) {
     if (!shouldPersistHtmlSnapshot(snapshot)) {
       clearPersistedHtmlSnapshot();
@@ -4037,45 +4854,12 @@ $('#btnOpenFolder').addEventListener('click', async () => {
       return;
     }
 
-    state.currentDirHandle = await window.showDirectoryPicker();
-    state.currentDirName = state.currentDirHandle.name;
-    updateStatusPath();
-    showToast(`已打开文件夹: ${state.currentDirHandle.name}`);
-
-    // Try to find and load index.html
-    try {
-      const indexHandle = await state.currentDirHandle.getFileHandle('index.html');
-      const file = await indexHandle.getFile();
-      await setCurrentFileContext({
-        fileHandle: indexHandle,
-        fileName: indexHandle.name,
-        dirHandle: state.currentDirHandle,
-        dirName: state.currentDirName,
-      });
-      loadEditorContent(await file.text());
-      showToast('已加载: index.html');
-    } catch {
-      // List HTML files
-      const htmlFiles = [];
-      for await (const [name, handle] of state.currentDirHandle.entries()) {
-        if (name.endsWith('.html') || name.endsWith('.htm')) {
-          htmlFiles.push({ name, handle });
-        }
-      }
-      if (htmlFiles.length >= 1) {
-        const file = await htmlFiles[0].handle.getFile();
-        await setCurrentFileContext({
-          fileHandle: htmlFiles[0].handle,
-          fileName: htmlFiles[0].name,
-          dirHandle: state.currentDirHandle,
-          dirName: state.currentDirName,
-        });
-        loadEditorContent(await file.text());
-        showToast(`已加载: ${htmlFiles[0].name}`);
-      } else {
-        showToast('文件夹中没有 HTML 文件');
-      }
-    }
+    const dirHandle = await window.showDirectoryPicker();
+    await openDirectoryHandle(dirHandle, {
+      preferredFileKey: createFolderFileKey('index.html'),
+      showToastMessage: true,
+      revealSidebar: true,
+    });
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error(err);
@@ -4117,6 +4901,16 @@ async function overwriteFile() {
       const writable = await state.currentFileHandle.createWritable();
       await writable.write(html);
       await writable.close();
+      if (state.activeFolderFileKey) {
+        state.currentFileBaseHtml = html;
+        const session = getFolderFileSession(state.activeFolderFileKey);
+        if (session) {
+          session.baseHtml = html;
+          session.html = html;
+        }
+        renderFileSidebar();
+        scheduleFolderSessionPersist();
+      }
       persistHtmlSnapshot();
       showToast('已覆盖源文件');
     } catch (err) {
@@ -4211,13 +5005,17 @@ document.addEventListener('keydown', (e) => {
    Init
    ============================================= */
 window.addEventListener('beforeunload', () => {
+  captureCurrentFileSession();
   persistHtmlSnapshot();
   persistFileMeta();
+  void persistFolderSessionState();
 });
 
 bootstrapApp();
 
 async function bootstrapApp() {
+  restoreSidebarCollapsedState();
+  renderFileSidebar();
   const restored = await restoreLastSession();
   if (!restored) {
     initIframe();
