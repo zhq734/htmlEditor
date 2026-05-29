@@ -912,6 +912,8 @@ const state = {
   resizeStartY: 0,
   resizeStartW: 0,
   resizeStartH: 0,
+  resizePointerId: null,
+  resizeHandleEl: null,
   iframeReady: false,
   iframeDoc: null,
   iframeBody: null,
@@ -925,6 +927,7 @@ const state = {
   activeEditableBlock: null,
   transientMutationPauseDepth: 0,
   skippedHeavySnapshotRestore: false,
+  preserveLocalInteractions: false,
   mediaAssetStore: {},
   nextMediaAssetId: 1,
   recentColors: [],
@@ -1160,9 +1163,9 @@ function initIframe(htmlContent) {
     state.iframeDoc = previewIframe.contentDocument || previewIframe.contentWindow.document;
     state.iframeBody = state.iframeDoc.body;
 
-    // URL 快照模式使用局部块编辑，避免整页 contenteditable 在大 DOM 上卡死
+    // URL 快照和本地交互页都使用局部块编辑，避免破坏原页面交互
     state.activeEditableBlock = null;
-    state.iframeBody.setAttribute('contenteditable', state.currentSourceType === 'url' ? 'false' : 'true');
+    state.iframeBody.setAttribute('contenteditable', usesScopedEditingMode() ? 'false' : 'true');
 
     // Inject editor styles
     injectEditorStyles();
@@ -1250,6 +1253,7 @@ function injectEditorStyles() {
       background: #fff;
       border: 2px solid #e8913a;
       z-index: 10;
+      touch-action: none;
     }
     .media-wrapper .resize-handle.nw { top: -5px; left: -5px; cursor: nw-resize; }
     .media-wrapper .resize-handle.n  { top: -5px; left: 50%; margin-left: -5px; cursor: n-resize; }
@@ -1286,6 +1290,11 @@ function injectEditorStyles() {
 function unlockDisabledButtonsForEditing(root = state.iframeBody) {
   if (!root) return;
 
+  if (isLocalInteractiveMode()) {
+    restoreEditableButtons(root);
+    return;
+  }
+
   root.querySelectorAll('button').forEach(btn => {
     if (btn.classList.contains('media-replace-btn')) return;
 
@@ -1301,10 +1310,6 @@ function unlockDisabledButtonsForEditing(root = state.iframeBody) {
     const label = state.iframeDoc.createElement('span');
     label.setAttribute('data-editor-button-label', 'true');
     label.setAttribute('contenteditable', 'true');
-    label.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
     label.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1333,6 +1338,10 @@ function restoreEditableButtons(root) {
     }
 
     btn.removeAttribute('data-editor-button-editable');
+    if (btn.hasAttribute('data-editor-original-disabled')) {
+      btn.setAttribute('disabled', '');
+      btn.removeAttribute('data-editor-original-disabled');
+    }
   });
 }
 
@@ -1418,7 +1427,7 @@ function bindIframeEvents() {
   doc.addEventListener('selectionchange', () => {
     if (state.selectionPointerDown) return;
     const host = ensureEditableHostFromSelection() || body;
-    if (isUrlSnapshotMode() && !host) return;
+    if (usesScopedEditingMode() && !host) return;
     if (hasTextSelectionInHost(host) || doc.activeElement === host || host.contains(doc.activeElement)) {
       queueToolbarUpdate();
     }
@@ -1428,7 +1437,7 @@ function bindIframeEvents() {
     state.selectionPointerDown = true;
     hideToolbarUI(false);
 
-    if (!isUrlSnapshotMode()) return;
+    if (!usesScopedEditingMode()) return;
 
     const target = e.target;
     if (target?.tagName === 'IMG' || target?.tagName === 'VIDEO' || target?.closest?.('.media-wrapper')) {
@@ -1493,7 +1502,7 @@ function bindIframeEvents() {
     // Deselect media when clicking elsewhere
     deselectMedia();
 
-    if (isUrlSnapshotMode()) {
+    if (usesScopedEditingMode()) {
       const block = resolveEditableBlockTarget(target);
       if (block) {
         activateEditableBlock(block);
@@ -1510,7 +1519,7 @@ function bindIframeEvents() {
       const activeHost = ensureEditableHostFromSelection();
       const hasActiveTextSelection = hasTextSelectionInHost(activeHost || state.iframeBody);
       if (!hasActiveTextSelection) {
-        if (isUrlSnapshotMode()) {
+        if (usesScopedEditingMode()) {
           const clickedInsideActiveBlock = activeHost && (activeHost === target || activeHost.contains(target));
           if (clickedInsideActiveBlock) {
             hideToolbarUI();
@@ -1542,7 +1551,7 @@ function bindIframeEvents() {
   // Mouseup for toolbar update
   body.addEventListener('mouseup', () => {
     state.selectionPointerDown = false;
-    if (isUrlSnapshotMode() && !ensureEditableHostFromSelection()) return;
+    if (usesScopedEditingMode() && !ensureEditableHostFromSelection()) return;
     queueToolbarUpdate();
     setTimeout(queueToolbarUpdate, 30);
   });
@@ -1603,11 +1612,11 @@ function setupIframeObserver() {
         const target = mutation.target;
         if (!isElementNode(target)) return true;
 
-        if (isUrlSnapshotMode() && mutation.attributeName === 'contenteditable') {
+        if (usesScopedEditingMode() && mutation.attributeName === 'contenteditable') {
           return false;
         }
 
-        if (isUrlSnapshotMode() && mutation.attributeName === 'class') {
+        if (usesScopedEditingMode() && mutation.attributeName === 'class') {
           return false;
         }
 
@@ -1627,7 +1636,7 @@ function setupIframeObserver() {
     if (!hasMeaningfulMutation) return;
 
     unlockDisabledButtonsForEditing();
-    protectMediaElements(isUrlSnapshotMode() ? getEditableHost() : state.iframeBody);
+    protectMediaElements(usesScopedEditingMode() ? getEditableHost() : state.iframeBody);
     if (state.isSourceMode && !state.isEditMode) {
       sourceArea.value = getIframeHTML();
     }
@@ -1859,13 +1868,28 @@ function scheduleSnapshotPersist(html) {
   }, 240);
 }
 
+function hasInteractiveLocalContent(html) {
+  const text = String(html || '');
+  return /<script\b/i.test(text)
+    || /\son[a-z]+\s*=/i.test(text)
+    || /\b(?:href|src)\s*=\s*["']javascript:/i.test(text);
+}
+
 function isUrlSnapshotMode() {
   return state.currentSourceType === 'url';
 }
 
+function isLocalInteractiveMode() {
+  return state.currentSourceType === 'local' && state.preserveLocalInteractions;
+}
+
+function usesScopedEditingMode() {
+  return isUrlSnapshotMode() || isLocalInteractiveMode();
+}
+
 function getEditableHost() {
   if (!state.iframeBody) return null;
-  if (!isUrlSnapshotMode()) return state.iframeBody;
+  if (!usesScopedEditingMode()) return state.iframeBody;
   return state.activeEditableBlock && state.iframeBody.contains(state.activeEditableBlock)
     ? state.activeEditableBlock
     : null;
@@ -1886,7 +1910,9 @@ function resolveEditableBlockTarget(target) {
   let inlineCandidate = null;
 
   while (node && node !== state.iframeBody) {
-    if (!isUrlSnapshotMode()) {
+    if (!usesScopedEditingMode()) {
+      if (node.matches?.(BLOCK_TARGET_SELECTOR)) return node;
+    } else if (isLocalInteractiveMode()) {
       if (node.matches?.(BLOCK_TARGET_SELECTOR)) return node;
     } else {
       if (!inlineCandidate && isReasonableUrlEditableInline(node)) {
@@ -1941,7 +1967,7 @@ function deactivateEditableBlock() {
 }
 
 function activateEditableBlock(block) {
-  if (!isUrlSnapshotMode() || !state.iframeBody || !block || block === state.iframeBody) return false;
+  if (!usesScopedEditingMode() || !state.iframeBody || !block || block === state.iframeBody) return false;
   if (!state.iframeBody.contains(block)) return false;
   if (state.activeEditableBlock === block) return true;
 
@@ -1953,7 +1979,7 @@ function activateEditableBlock(block) {
 }
 
 function ensureEditableHostFromSelection() {
-  if (!isUrlSnapshotMode()) return getEditableHost();
+  if (!usesScopedEditingMode()) return getEditableHost();
 
   const currentHost = getEditableHost();
   const range = getLiveSelectionRange();
@@ -2423,6 +2449,7 @@ function loadEditorContent(html, options = {}) {
   if (resetMediaAssets) {
     clearMediaAssetStore();
   }
+  state.preserveLocalInteractions = state.currentSourceType === 'local' && hasInteractiveLocalContent(html);
   state.recordHistoryOnLoad = true;
   initIframe(html);
   persistHtmlSnapshot(html);
@@ -2430,7 +2457,9 @@ function loadEditorContent(html, options = {}) {
   updateStatusPath();
   statusInfo.textContent = state.currentSourceType === 'url'
     ? 'URL 快照模式 — 可编辑快照 | 建议导出为新文件'
-    : 'Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式';
+    : (state.preserveLocalInteractions
+      ? '本地交互模式 — 保留页面 JS | 点击文本块后编辑'
+      : 'Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式');
 }
 
 btnOpenUrl.addEventListener('click', () => {
@@ -3672,7 +3701,7 @@ function addResizeHandles(wrapper) {
   dirs.forEach(dir => {
     const handle = state.iframeDoc.createElement('div');
     handle.className = `resize-handle ${dir}`;
-    handle.addEventListener('mousedown', (e) => startResize(e, dir, wrapper));
+    handle.addEventListener('pointerdown', (e) => startResize(e, dir, wrapper));
     wrapper.appendChild(handle);
   });
 }
@@ -3715,9 +3744,22 @@ function startResize(e, dir, wrapper) {
   state.resizeStartY = e.clientY;
   state.resizeStartW = media.offsetWidth;
   state.resizeStartH = media.offsetHeight;
+  state.resizePointerId = typeof e.pointerId === 'number' ? e.pointerId : null;
+  state.resizeHandleEl = e.currentTarget || null;
+
+  if (state.resizeHandleEl?.setPointerCapture && state.resizePointerId !== null) {
+    try {
+      state.resizeHandleEl.setPointerCapture(state.resizePointerId);
+    } catch (err) {}
+  }
 
   document.addEventListener('mousemove', onResize);
   document.addEventListener('mouseup', stopResize);
+  state.iframeDoc?.addEventListener('mousemove', onResize);
+  state.iframeDoc?.addEventListener('mouseup', stopResize);
+  state.resizeHandleEl?.addEventListener('pointermove', onResize);
+  state.resizeHandleEl?.addEventListener('pointerup', stopResize);
+  state.resizeHandleEl?.addEventListener('pointercancel', stopResize);
 }
 
 function onResize(e) {
@@ -3758,7 +3800,19 @@ function onResize(e) {
 function stopResize() {
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
+  state.iframeDoc?.removeEventListener('mousemove', onResize);
+  state.iframeDoc?.removeEventListener('mouseup', stopResize);
+  state.resizeHandleEl?.removeEventListener('pointermove', onResize);
+  state.resizeHandleEl?.removeEventListener('pointerup', stopResize);
+  state.resizeHandleEl?.removeEventListener('pointercancel', stopResize);
+  if (state.resizeHandleEl?.releasePointerCapture && state.resizePointerId !== null) {
+    try {
+      state.resizeHandleEl.releasePointerCapture(state.resizePointerId);
+    } catch (err) {}
+  }
   state.resizeDir = null;
+  state.resizePointerId = null;
+  state.resizeHandleEl = null;
 }
 
 /* =============================================
