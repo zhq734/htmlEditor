@@ -1060,6 +1060,7 @@ const state = {
   currentDirName: '',
   currentSourceUrl: '',
   currentSourceType: 'local',
+  currentFileRelativePath: '',
   isSourceMode: false,
   isEditMode: false,
   selectedMedia: null,
@@ -1101,6 +1102,13 @@ const state = {
   activeFolderFileKey: '',
   isFileSidebarCollapsed: false,
   currentFileBaseHtml: '',
+  localPreviewObjectUrls: [],
+  localPreviewUrlCache: {},
+  localPreviewStylesheetCache: {},
+  localPreviewRemotePathCache: {},
+  localPreviewFileIndex: null,
+  localPreviewFileIndexPromise: null,
+  iframeRenderToken: 0,
 };
 
 /* =============================================
@@ -1328,11 +1336,23 @@ const defaultHTML = `<!DOCTYPE html>
 /* =============================================
    Iframe Initialization
    ============================================= */
+// 初始化iframe。
 function initIframe(htmlContent) {
+  const renderToken = ++state.iframeRenderToken;
   const content = htmlContent || defaultHTML;
-  previewIframe.srcdoc = content;
+  prepareIframeContent(content, renderToken)
+    .then(resolvedContent => {
+      if (renderToken !== state.iframeRenderToken) return;
+      previewIframe.srcdoc = resolvedContent;
+    })
+    .catch(err => {
+      console.warn('准备预览内容失败', err);
+      if (renderToken !== state.iframeRenderToken) return;
+      previewIframe.srcdoc = content;
+    });
 
   previewIframe.onload = function() {
+    if (renderToken !== state.iframeRenderToken) return;
     state.iframeDoc = previewIframe.contentDocument || previewIframe.contentWindow.document;
     state.iframeBody = state.iframeDoc.body;
 
@@ -1367,6 +1387,7 @@ function initIframe(htmlContent) {
   };
 }
 
+// 处理inject编辑器样式。
 function injectEditorStyles() {
   const style = state.iframeDoc.createElement('style');
   style.id = '__editor_styles__';
@@ -1460,6 +1481,7 @@ function injectEditorStyles() {
   state.iframeDoc.head.appendChild(style);
 }
 
+// 处理解锁Disabled按钮ForEditing。
 function unlockDisabledButtonsForEditing(root = state.iframeBody) {
   if (!root) return;
 
@@ -1498,6 +1520,7 @@ function unlockDisabledButtonsForEditing(root = state.iframeBody) {
   });
 }
 
+// 恢复可编辑按钮。
 function restoreEditableButtons(root) {
   if (!root) return;
 
@@ -1518,25 +1541,30 @@ function restoreEditableButtons(root) {
   });
 }
 
+// 获取iframeHTML。
 function getIframeHTML() {
   if (!state.iframeDoc) return '';
   return '<!DOCTYPE html>\n' + createIframeHTMLClone().outerHTML;
 }
 
+// 创建iframeHTMLClone。
 function createIframeHTMLClone() {
   return sanitizeDocumentClone(state.iframeDoc.documentElement.cloneNode(true));
 }
 
+// 创建源码HTMLClone。
 function createSourceHTMLClone(html) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html || defaultHTML, 'text/html');
   return sanitizeDocumentClone(doc.documentElement.cloneNode(true));
 }
 
+// 判断元素节点。
 function isElementNode(node) {
   return !!node && node.nodeType === 1;
 }
 
+// 清洗文档克隆。
 function sanitizeDocumentClone(clone) {
   // Remove editor-injected elements
   const toRemove = clone.querySelectorAll('#__editor_styles__, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
@@ -1568,18 +1596,549 @@ function sanitizeDocumentClone(clone) {
   return clone;
 }
 
+// 获取导出HTML。
 async function getExportHTML() {
   const clone = state.isEditMode
     ? createSourceHTMLClone(sourceArea.value)
     : (state.iframeDoc ? createIframeHTMLClone() : null);
   if (!clone) return '';
+  restorePreviewObjectUrlsInClone(clone);
   await embedMediaAssetsIntoClone(clone);
   return '<!DOCTYPE html>\n' + clone.outerHTML;
+}
+
+// 释放本地预览对象URL。
+function revokeLocalPreviewObjectUrls() {
+  state.localPreviewObjectUrls.forEach(url => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch (err) {}
+  });
+  state.localPreviewObjectUrls = [];
+  state.localPreviewUrlCache = {};
+  state.localPreviewStylesheetCache = {};
+}
+
+// 重置本地预览资源索引缓存。
+function resetLocalPreviewLookupCaches() {
+  state.localPreviewRemotePathCache = {};
+  state.localPreviewFileIndex = null;
+  state.localPreviewFileIndexPromise = null;
+}
+
+// 追踪本地预览对象URL。
+function trackLocalPreviewObjectUrl(url) {
+  if (!url || !url.startsWith('blob:')) return url;
+  state.localPreviewObjectUrls.push(url);
+  return url;
+}
+
+// 判断Previewable本地资源路径。
+function isPreviewableLocalResourcePath(path) {
+  const text = String(path || '').trim();
+  if (!text) return false;
+  return !/^(?:data:|blob:|https?:|file:|mailto:|tel:|javascript:|about:|#|\/\/)/i.test(text);
+}
+
+// 判断是否具备本地资源包预览上下文。
+function hasLocalPreviewResourceContext() {
+  return Boolean(state.currentDirHandle);
+}
+
+// 判断是否为远程快照资源URL。
+function isRemoteSnapshotResourceUrl(path) {
+  const text = String(path || '').trim();
+  return /^(?:https?:)?\/\//i.test(text);
+}
+
+// 清理快照资源文件名中的非法字符。
+function sanitizeSnapshotResourceFileName(name) {
+  return String(name || '').replace(/[<>:"/\\|?*]/g, '_');
+}
+
+// 标准化相对Segments。
+function normalizeRelativeSegments(path) {
+  const segments = [];
+  String(path || '').split('/').forEach(part => {
+    if (!part || part === '.') return;
+    if (part === '..') {
+      if (segments.length) segments.pop();
+      return;
+    }
+    segments.push(part);
+  });
+  return segments;
+}
+
+// 处理dirnameFrom相对路径。
+function dirnameFromRelativePath(path) {
+  const normalized = normalizeFolderRelativePath(path);
+  const idx = normalized.lastIndexOf('/');
+  return idx >= 0 ? normalized.slice(0, idx) : '';
+}
+
+// 解析文件夹相对路径。
+function resolveFolderRelativePath(fromPath, targetPath) {
+  const target = String(targetPath || '').trim();
+  if (!isPreviewableLocalResourcePath(target)) return '';
+  const cleanTarget = target.split('#')[0].split('?')[0];
+  if (!cleanTarget) return '';
+  const baseDir = dirnameFromRelativePath(fromPath);
+  const merged = cleanTarget.startsWith('/')
+    ? normalizeRelativeSegments(cleanTarget)
+    : normalizeRelativeSegments([baseDir, cleanTarget].filter(Boolean).join('/'));
+  return merged.join('/');
+}
+
+// 递归收集目录中的全部文件路径。
+async function collectFolderFilePaths(dirHandle, prefix = '', files = []) {
+  if (!dirHandle?.entries) return files;
+
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (!handle) continue;
+    if (handle.kind === 'directory') {
+      await collectFolderFilePaths(handle, `${prefix}${name}/`, files);
+      continue;
+    }
+    if (handle.kind !== 'file') continue;
+    const relativePath = normalizeFolderRelativePath(`${prefix}${name}`);
+    files.push({
+      name,
+      relativePath,
+      basename: normalizeFolderFileName(name),
+      basenameLower: normalizeFolderFileName(name).toLowerCase(),
+    });
+  }
+
+  return files;
+}
+
+// 获取本地预览目录文件索引。
+async function getLocalPreviewFileIndex() {
+  if (!hasLocalPreviewResourceContext()) return null;
+  if (state.localPreviewFileIndex) return state.localPreviewFileIndex;
+  if (state.localPreviewFileIndexPromise) return state.localPreviewFileIndexPromise;
+
+  state.localPreviewFileIndexPromise = (async () => {
+    const files = await collectFolderFilePaths(state.currentDirHandle);
+    const exactMap = {};
+    const prefixMap = {};
+
+    files.forEach(item => {
+      const basename = item.basenameLower;
+      if (!basename) return;
+
+      if (!exactMap[basename]) {
+        exactMap[basename] = item.relativePath;
+      }
+
+      const sanitizedBasename = sanitizeSnapshotResourceFileName(item.basename).toLowerCase();
+      if (sanitizedBasename && !exactMap[sanitizedBasename]) {
+        exactMap[sanitizedBasename] = item.relativePath;
+      }
+
+      const prefix = basename.split('~')[0];
+      if (prefix && !prefixMap[prefix]) {
+        prefixMap[prefix] = item.relativePath;
+      }
+    });
+
+    state.localPreviewFileIndex = { files, exactMap, prefixMap };
+    state.localPreviewFileIndexPromise = null;
+    return state.localPreviewFileIndex;
+  })();
+
+  return state.localPreviewFileIndexPromise;
+}
+
+// 构建远程快照资源的候选文件名。
+function buildRemoteSnapshotResourceCandidates(resourceUrl) {
+  const raw = String(resourceUrl || '').trim();
+  if (!raw) return [];
+
+  let urlObj = null;
+  try {
+    urlObj = new URL(raw.startsWith('//') ? `https:${raw}` : raw);
+  } catch {
+    return [];
+  }
+
+  const basename = urlObj.pathname.split('/').pop() || '';
+  if (!basename) return [];
+
+  const candidates = new Set();
+  const addCandidate = value => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    candidates.add(text.toLowerCase());
+    candidates.add(sanitizeSnapshotResourceFileName(text).toLowerCase());
+    candidates.add(text.replace(/:/g, '_').toLowerCase());
+  };
+
+  addCandidate(basename);
+  try {
+    addCandidate(decodeURIComponent(basename));
+  } catch {}
+
+  return [...candidates].filter(Boolean);
+}
+
+// 把远程资源URL映射到本地保存页资源。
+async function resolveLocalSnapshotRemoteResourcePath(resourceUrl) {
+  const raw = String(resourceUrl || '').trim();
+  if (!raw || !hasLocalPreviewResourceContext() || !isRemoteSnapshotResourceUrl(raw)) return '';
+  if (Object.prototype.hasOwnProperty.call(state.localPreviewRemotePathCache, raw)) {
+    return state.localPreviewRemotePathCache[raw];
+  }
+
+  const index = await getLocalPreviewFileIndex();
+  if (!index) return '';
+
+  const candidates = buildRemoteSnapshotResourceCandidates(raw);
+  for (const candidate of candidates) {
+    const exactMatch = index.exactMap[candidate];
+    if (exactMatch) {
+      state.localPreviewRemotePathCache[raw] = exactMatch;
+      return exactMatch;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const prefix = candidate.split('~')[0];
+    if (!prefix) continue;
+    const prefixMatch = index.prefixMap[prefix];
+    if (prefixMatch) {
+      state.localPreviewRemotePathCache[raw] = prefixMatch;
+      return prefixMatch;
+    }
+  }
+
+  state.localPreviewRemotePathCache[raw] = '';
+  return '';
+}
+
+// 解析用于预览的资源路径，支持相对路径和远程快照资源回填。
+async function resolvePreviewResourcePath(fromPath, targetPath) {
+  const relativePath = resolveFolderRelativePath(fromPath, targetPath);
+  if (relativePath) return relativePath;
+  return resolveLocalSnapshotRemoteResourcePath(targetPath);
+}
+
+// 获取目录文件句柄By相对路径。
+async function getDirectoryFileHandleByRelativePath(dirHandle, relativePath) {
+  const normalized = normalizeFolderRelativePath(relativePath);
+  if (!dirHandle || !normalized) return null;
+  const segments = normalized.split('/').filter(Boolean);
+  if (!segments.length) return null;
+
+  let currentHandle = dirHandle;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    if (!currentHandle?.getDirectoryHandle) return null;
+    try {
+      currentHandle = await currentHandle.getDirectoryHandle(segments[i]);
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    return await currentHandle.getFileHandle(segments[segments.length - 1]);
+  } catch {
+    return null;
+  }
+}
+
+// 读取本地资源文件。
+async function readLocalResourceFile(relativePath) {
+  if (!hasLocalPreviewResourceContext() || !relativePath) return null;
+  const handle = await getDirectoryFileHandleByRelativePath(state.currentDirHandle, relativePath);
+  if (!handle) return null;
+  try {
+    return await handle.getFile();
+  } catch {
+    return null;
+  }
+}
+
+// 读取本地资源BlobURL。
+async function readLocalResourceBlobUrl(relativePath) {
+  const normalized = normalizeFolderRelativePath(relativePath);
+  if (!normalized) return '';
+  if (state.localPreviewUrlCache[normalized]) {
+    return state.localPreviewUrlCache[normalized];
+  }
+  const file = await readLocalResourceFile(normalized);
+  if (!file) return '';
+  const blobUrl = trackLocalPreviewObjectUrl(URL.createObjectURL(file));
+  state.localPreviewUrlCache[normalized] = blobUrl;
+  return blobUrl;
+}
+
+// 标记预览资源节点。
+function markPreviewResourceNode(node, attrName, originalValue, resolvedValue) {
+  if (!node || !attrName || !originalValue || !resolvedValue || originalValue === resolvedValue) return;
+  node.setAttribute(attrName, resolvedValue);
+  node.setAttribute(`data-editor-preview-${attrName}`, originalValue);
+}
+
+// 异步替换字符串中的资源片段。
+async function replaceAsync(text, pattern, replacer) {
+  let result = '';
+  let lastIndex = 0;
+
+  for (const match of String(text || '').matchAll(pattern)) {
+    const matchIndex = Number.isFinite(match.index) ? match.index : 0;
+    result += text.slice(lastIndex, matchIndex);
+    result += await replacer(match);
+    lastIndex = matchIndex + match[0].length;
+  }
+
+  result += text.slice(lastIndex);
+  return result;
+}
+
+// 重写本地样式文本里的相对资源引用。
+async function rewriteLocalCssText(cssText, fromPath, renderToken, cssStack = new Set()) {
+  if (!cssText || renderToken !== state.iframeRenderToken) return String(cssText || '');
+
+  let nextCss = await replaceAsync(String(cssText), /url\((['"]?)([^'")]+)\1\)/gi, async match => {
+    if (renderToken !== state.iframeRenderToken) return match[0];
+    const rawUrl = String(match[2] || '').trim();
+    const relativePath = await resolvePreviewResourcePath(fromPath, rawUrl);
+    if (!relativePath) return match[0];
+    const blobUrl = await readLocalResourceBlobUrl(relativePath);
+    return blobUrl ? `url("${blobUrl}")` : match[0];
+  });
+
+  nextCss = await replaceAsync(nextCss, /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)\s*([^;]*);/gi, async match => {
+    if (renderToken !== state.iframeRenderToken) return match[0];
+    const rawUrl = String(match[2] || match[4] || '').trim();
+    const mediaQuery = String(match[5] || '').trim();
+    const relativePath = await resolvePreviewResourcePath(fromPath, rawUrl);
+    if (!relativePath) return match[0];
+    const stylesheetUrl = await readLocalStylesheetBlobUrl(relativePath, renderToken, cssStack);
+    if (!stylesheetUrl) return match[0];
+    return `@import url("${stylesheetUrl}")${mediaQuery ? ` ${mediaQuery}` : ''};`;
+  });
+
+  return nextCss;
+}
+
+// 读取并重写本地样式表后返回可预览 URL。
+async function readLocalStylesheetBlobUrl(relativePath, renderToken, cssStack = new Set()) {
+  const normalized = normalizeFolderRelativePath(relativePath);
+  if (!normalized) return '';
+  if (state.localPreviewStylesheetCache[normalized]) {
+    return state.localPreviewStylesheetCache[normalized];
+  }
+  if (cssStack.has(normalized)) return '';
+
+  const file = await readLocalResourceFile(normalized);
+  if (!file) return '';
+
+  cssStack.add(normalized);
+  const cssText = await file.text();
+  if (renderToken !== state.iframeRenderToken) {
+    cssStack.delete(normalized);
+    return '';
+  }
+
+  const rewrittenCss = await rewriteLocalCssText(cssText, normalized, renderToken, cssStack);
+  cssStack.delete(normalized);
+  if (renderToken !== state.iframeRenderToken) return '';
+
+  const blobUrl = trackLocalPreviewObjectUrl(URL.createObjectURL(new Blob([rewrittenCss], { type: 'text/css' })));
+  state.localPreviewStylesheetCache[normalized] = blobUrl;
+  return blobUrl;
+}
+
+// 重写本地 Srcset 属性里的相对资源引用。
+async function rewriteLocalSrcsetAttribute(srcset, fromPath, renderToken) {
+  if (!srcset || renderToken !== state.iframeRenderToken) return String(srcset || '');
+
+  const segments = String(srcset)
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+
+  const rewritten = [];
+  for (const segment of segments) {
+    if (renderToken !== state.iframeRenderToken) return String(srcset || '');
+    const bits = segment.split(/\s+/);
+    const rawUrl = bits[0] || '';
+    const relativePath = await resolvePreviewResourcePath(fromPath, rawUrl);
+    if (!relativePath) {
+      rewritten.push(segment);
+      continue;
+    }
+    const blobUrl = await readLocalResourceBlobUrl(relativePath);
+    rewritten.push(blobUrl ? [blobUrl, ...bits.slice(1)].join(' ').trim() : segment);
+  }
+
+  return rewritten.join(', ');
+}
+
+// 恢复预览对象URLIn克隆。
+function restorePreviewObjectUrlsInClone(clone) {
+  if (!clone) return;
+  clone.querySelectorAll('[data-editor-preview-href]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-href');
+    if (original) {
+      el.setAttribute('href', original);
+    }
+    el.removeAttribute('data-editor-preview-href');
+  });
+  clone.querySelectorAll('[data-editor-preview-src]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-src');
+    if (original) {
+      el.setAttribute('src', original);
+    }
+    el.removeAttribute('data-editor-preview-src');
+  });
+  clone.querySelectorAll('[data-editor-preview-poster]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-poster');
+    if (original) {
+      el.setAttribute('poster', original);
+    }
+    el.removeAttribute('data-editor-preview-poster');
+  });
+  clone.querySelectorAll('[data-editor-preview-srcset]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-srcset');
+    if (original) {
+      el.setAttribute('srcset', original);
+    }
+    el.removeAttribute('data-editor-preview-srcset');
+  });
+  clone.querySelectorAll('[data-editor-preview-style]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-style');
+    if (original) {
+      el.setAttribute('style', original);
+    }
+    el.removeAttribute('data-editor-preview-style');
+  });
+  clone.querySelectorAll('style[data-editor-preview-style-text]').forEach(el => {
+    const original = el.getAttribute('data-editor-preview-style-text');
+    if (original !== null) {
+      el.textContent = original;
+    }
+    el.removeAttribute('data-editor-preview-style-text');
+  });
+}
+
+// 准备iframe内容。
+async function prepareIframeContent(htmlContent, renderToken) {
+  if (!hasLocalPreviewResourceContext() || state.currentSourceType !== 'local' || !state.currentFileRelativePath) {
+    revokeLocalPreviewObjectUrls();
+    return htmlContent || defaultHTML;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlContent || defaultHTML, 'text/html');
+  const useLocalSnapshotMode = shouldUseLocalSnapshotMode(htmlContent);
+  revokeLocalPreviewObjectUrls();
+
+  if (useLocalSnapshotMode) {
+    const hasStaticSnapshotDom = hasRenderableLocalSnapshotDom(doc);
+    if (!hasStaticSnapshotDom) {
+      tryBuildStaticArticleFallback(doc);
+    }
+    injectLocalSnapshotPreviewStyle(doc);
+
+    doc.querySelectorAll('img[data-src]:not([src]), iframe[data-src]:not([src]), video[data-src]:not([src])').forEach(node => {
+      const dataSrc = node.getAttribute('data-src') || '';
+      if (dataSrc) {
+        node.setAttribute('src', dataSrc);
+      }
+    });
+    doc.querySelectorAll('img[data-srcset]:not([srcset]), source[data-srcset]:not([srcset])').forEach(node => {
+      const dataSrcset = node.getAttribute('data-srcset') || '';
+      if (dataSrcset) {
+        node.setAttribute('srcset', dataSrcset);
+      }
+    });
+    doc.querySelectorAll('video[data-poster]:not([poster]), img[data-poster]:not([poster])').forEach(node => {
+      const dataPoster = node.getAttribute('data-poster') || '';
+      if (dataPoster) {
+        node.setAttribute('poster', dataPoster);
+      }
+    });
+
+    doc.querySelectorAll('script').forEach(node => node.remove());
+    doc.querySelectorAll('meta[http-equiv=\"refresh\"]').forEach(node => node.remove());
+    doc.querySelectorAll('*').forEach(node => {
+      Array.from(node.attributes).forEach(attr => {
+        if (/^on/i.test(attr.name)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+  }
+
+  const styleAttrNodes = Array.from(doc.querySelectorAll('[style]'));
+  for (const node of styleAttrNodes) {
+    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
+    const originalStyle = node.getAttribute('style') || '';
+    const rewrittenStyle = await rewriteLocalCssText(originalStyle, state.currentFileRelativePath, renderToken);
+    if (rewrittenStyle && rewrittenStyle !== originalStyle) {
+      markPreviewResourceNode(node, 'style', originalStyle, rewrittenStyle);
+    }
+  }
+
+  const srcsetNodes = Array.from(doc.querySelectorAll('[srcset]'));
+  for (const node of srcsetNodes) {
+    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
+    const originalSrcset = node.getAttribute('srcset') || '';
+    const rewrittenSrcset = await rewriteLocalSrcsetAttribute(originalSrcset, state.currentFileRelativePath, renderToken);
+    if (rewrittenSrcset && rewrittenSrcset !== originalSrcset) {
+      markPreviewResourceNode(node, 'srcset', originalSrcset, rewrittenSrcset);
+    }
+  }
+
+  const styleNodes = Array.from(doc.querySelectorAll('style'));
+  for (const styleNode of styleNodes) {
+    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
+    const originalText = styleNode.textContent || '';
+    const rewrittenText = await rewriteLocalCssText(originalText, state.currentFileRelativePath, renderToken);
+    if (rewrittenText && rewrittenText !== originalText) {
+      styleNode.textContent = rewrittenText;
+      styleNode.setAttribute('data-editor-preview-style-text', originalText);
+    }
+  }
+
+  const hrefNodes = Array.from(doc.querySelectorAll('[href]'));
+  for (const link of hrefNodes) {
+    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
+    const href = link.getAttribute('href') || '';
+    const relativePath = await resolvePreviewResourcePath(state.currentFileRelativePath, href);
+    if (!relativePath) continue;
+    const isStylesheetLink = link.tagName === 'LINK' && /\bstylesheet\b/i.test(link.getAttribute('rel') || '');
+    const blobUrl = isStylesheetLink
+      ? await readLocalStylesheetBlobUrl(relativePath, renderToken)
+      : await readLocalResourceBlobUrl(relativePath);
+    if (!blobUrl) continue;
+    markPreviewResourceNode(link, 'href', href, blobUrl);
+  }
+
+  const assetNodes = Array.from(doc.querySelectorAll('[src], [poster]'));
+  for (const node of assetNodes) {
+    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
+    for (const attrName of ['src', 'poster']) {
+      const originalValue = node.getAttribute(attrName) || '';
+      const relativePath = await resolvePreviewResourcePath(state.currentFileRelativePath, originalValue);
+      if (!relativePath) continue;
+      const blobUrl = await readLocalResourceBlobUrl(relativePath);
+      if (!blobUrl) continue;
+      markPreviewResourceNode(node, attrName, originalValue, blobUrl);
+    }
+  }
+
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
 }
 
 /* =============================================
    Protect Media Elements
    ============================================= */
+// 保护媒体Elements。
 function protectMediaElements(root = state.iframeBody) {
   if (!root) return;
   root.querySelectorAll('img, video').forEach(el => {
@@ -1592,6 +2151,7 @@ function protectMediaElements(root = state.iframeBody) {
 /* =============================================
    Iframe Event Binding
    ============================================= */
+// 绑定iframe事件。
 function bindIframeEvents() {
   const doc = state.iframeDoc;
   const body = state.iframeBody;
@@ -1690,8 +2250,14 @@ function bindIframeEvents() {
     setTimeout(() => {
       if (!state.iframeDoc || !state.iframeBody) return;
       const activeHost = ensureEditableHostFromSelection();
-      const hasActiveTextSelection = hasTextSelectionInHost(activeHost || state.iframeBody);
+      const selectionHost = activeHost || state.iframeBody;
+      const hasActiveTextSelection = hasTextSelectionInHost(selectionHost);
+      const hasActiveCaret = hasCollapsedCaretInHost(selectionHost);
       if (!hasActiveTextSelection) {
+        if (hasActiveCaret) {
+          hideToolbarUI();
+          return;
+        }
         if (usesScopedEditingMode()) {
           const clickedInsideActiveBlock = activeHost && (activeHost === target || activeHost.contains(target));
           if (clickedInsideActiveBlock) {
@@ -1739,6 +2305,7 @@ function bindIframeEvents() {
   });
 }
 
+// 处理queue工具栏更新。
 function queueToolbarUpdate() {
   if (state.toolbarUpdateQueued) return;
   state.toolbarUpdateQueued = true;
@@ -1748,6 +2315,7 @@ function queueToolbarUpdate() {
   });
 }
 
+// 处理withTransientiframe变更Pause。
 function withTransientIframeMutationPause(task) {
   state.transientMutationPauseDepth += 1;
   try {
@@ -1759,6 +2327,7 @@ function withTransientIframeMutationPause(task) {
   }
 }
 
+// 设置iframe观察器。
 function setupIframeObserver() {
   const observer = new MutationObserver((mutations) => {
     if (state.transientMutationPauseDepth > 0) return;
@@ -1830,6 +2399,7 @@ function setupIframeObserver() {
 $('#modePreview').addEventListener('click', () => switchMode('preview'));
 $('#modeEdit').addEventListener('click', () => switchMode('edit'));
 
+// 处理switch模式。
 function switchMode(mode) {
   if (mode === 'edit') {
     // Save current iframe content to source
@@ -1886,22 +2456,27 @@ sourceArea.addEventListener('input', () => {
   recordHistorySnapshot();
 });
 
+// 获取当前编辑器HTML。
 function getCurrentEditorHTML() {
   return state.isEditMode ? sourceArea.value : getIframeHTML();
 }
 
+// 标准化文件夹文件名称。
 function normalizeFolderFileName(name) {
   return String(name || '').trim();
 }
 
+// 标准化文件夹相对路径。
 function normalizeFolderRelativePath(path) {
   return normalizeFolderFileName(path).replace(/\\/g, '/');
 }
 
+// 创建文件夹文件Key。
 function createFolderFileKey(path) {
   return normalizeFolderRelativePath(path).toLowerCase();
 }
 
+// 处理sort文件夹HTML文件。
 function sortFolderHtmlFiles(files) {
   return [...files].sort((a, b) => {
     const aName = String(a?.relativePath || a?.name || '').toLowerCase();
@@ -1913,6 +2488,7 @@ function sortFolderHtmlFiles(files) {
   });
 }
 
+// 处理克隆媒体资源存储。
 function cloneMediaAssetStore(store = state.mediaAssetStore) {
   const nextStore = {};
   Object.entries(store || {}).forEach(([assetId, asset]) => {
@@ -1921,6 +2497,7 @@ function cloneMediaAssetStore(store = state.mediaAssetStore) {
   return nextStore;
 }
 
+// 处理serialize媒体资源存储。
 async function serializeMediaAssetStore(store = state.mediaAssetStore) {
   const serialized = {};
   for (const [assetId, asset] of Object.entries(store || {})) {
@@ -1946,6 +2523,7 @@ async function serializeMediaAssetStore(store = state.mediaAssetStore) {
   return serialized;
 }
 
+// 处理克隆Persisted媒体资源存储。
 function clonePersistedMediaAssetStore(store = {}) {
   const nextStore = {};
   Object.entries(store || {}).forEach(([assetId, asset]) => {
@@ -1961,10 +2539,12 @@ function clonePersistedMediaAssetStore(store = {}) {
   return nextStore;
 }
 
+// 获取文件夹文件会话。
 function getFolderFileSession(fileKey) {
   return fileKey ? state.folderFileSessions[fileKey] || null : null;
 }
 
+// 判断当前文件Dirty。
 function isCurrentFileDirty() {
   if (!state.activeFolderFileKey || state.currentSourceType !== 'local' || !state.currentDirHandle) return false;
   const session = getFolderFileSession(state.activeFolderFileKey);
@@ -1973,6 +2553,7 @@ function isCurrentFileDirty() {
   return currentHtml !== (session.baseHtml || '');
 }
 
+// 处理捕获当前文件会话。
 function captureCurrentFileSession(options = {}) {
   const { schedulePersist: shouldSchedulePersist = true } = options;
   if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.activeFolderFileKey) return;
@@ -1982,6 +2563,7 @@ function captureCurrentFileSession(options = {}) {
   state.folderFileSessions[state.activeFolderFileKey] = {
     key: state.activeFolderFileKey,
     fileName: state.currentFileName || '',
+    relativePath: state.currentFileRelativePath || '',
     html: currentHtml,
     baseHtml: state.currentFileBaseHtml || '',
     history: [...state.history],
@@ -1998,6 +2580,7 @@ function captureCurrentFileSession(options = {}) {
   }
 }
 
+// 重置编辑器会话状态。
 function resetEditorSessionState() {
   clearTimeout(state.historyDebounceTimer);
   state.history = [];
@@ -2008,6 +2591,7 @@ function resetEditorSessionState() {
   dismissSelection();
 }
 
+// 应用文件会话状态。
 function applyFileSessionState(session = null) {
   if (session) {
     state.history = Array.isArray(session.history) ? [...session.history] : [];
@@ -2029,6 +2613,7 @@ function applyFileSessionState(session = null) {
   updateHistoryButtons();
 }
 
+// 更新侧边栏切换Icon。
 function updateSidebarToggleIcon() {
   if (!btnToggleSidebar) return;
   btnToggleSidebar.innerHTML = state.isFileSidebarCollapsed
@@ -2038,11 +2623,13 @@ function updateSidebarToggleIcon() {
   btnToggleSidebar.setAttribute('aria-label', btnToggleSidebar.title);
 }
 
+// 应用侧边栏Collapsed状态。
 function applySidebarCollapsedState() {
   workspaceShell.classList.toggle('sidebar-hidden', state.isFileSidebarCollapsed);
   updateSidebarToggleIcon();
 }
 
+// 持久化侧边栏Collapsed状态。
 function persistSidebarCollapsedState() {
   try {
     localStorage.setItem(STORAGE_KEYS.fileSidebarCollapsed, state.isFileSidebarCollapsed ? '1' : '0');
@@ -2051,6 +2638,7 @@ function persistSidebarCollapsedState() {
   }
 }
 
+// 恢复侧边栏Collapsed状态。
 function restoreSidebarCollapsedState() {
   try {
     state.isFileSidebarCollapsed = localStorage.getItem(STORAGE_KEYS.fileSidebarCollapsed) === '1';
@@ -2060,6 +2648,7 @@ function restoreSidebarCollapsedState() {
   applySidebarCollapsedState();
 }
 
+// 更新文件侧边栏元信息。
 function updateFileSidebarMeta() {
   if (!state.currentDirHandle) {
     fileSidebarMeta.textContent = '未打开文件夹';
@@ -2069,6 +2658,7 @@ function updateFileSidebarMeta() {
   fileSidebarMeta.textContent = `${state.currentDirName || state.currentDirHandle.name || '当前文件夹'} · ${total} 个 HTML`;
 }
 
+// 渲染文件侧边栏。
 function renderFileSidebar() {
   updateFileSidebarMeta();
 
@@ -2137,6 +2727,7 @@ fileSidebarList.addEventListener('click', async (e) => {
   }
 });
 
+// 更新状态路径。
 function updateStatusPath() {
   if (state.currentSourceType === 'url' && state.currentSourceUrl) {
     statusPath.textContent = state.currentSourceUrl;
@@ -2151,6 +2742,7 @@ function updateStatusPath() {
   statusPath.textContent = fileName || dirName || '未打开文件夹';
 }
 
+// 应用编辑器布局From状态。
 function applyEditorLayoutFromState(currentHtml = '') {
   const previewModeBtn = $('#modePreview');
   const editModeBtn = $('#modeEdit');
@@ -2191,6 +2783,7 @@ function applyEditorLayoutFromState(currentHtml = '') {
   }
 }
 
+// 持久化文件元信息。
 function persistFileMeta() {
   try {
     localStorage.setItem(STORAGE_KEYS.lastFileMeta, JSON.stringify({
@@ -2208,6 +2801,7 @@ function persistFileMeta() {
   }
 }
 
+// 读取Persisted文件元信息。
 function readPersistedFileMeta() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEYS.lastFileMeta) || 'null');
@@ -2216,6 +2810,7 @@ function readPersistedFileMeta() {
   }
 }
 
+// 持久化HTML快照。
 function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
   if (!html) return;
 
@@ -2260,6 +2855,7 @@ function persistHtmlSnapshot(html = getCurrentEditorHTML()) {
   });
 }
 
+// 清理PersistedHTML快照。
 function clearPersistedHtmlSnapshot() {
   try {
     localStorage.removeItem(STORAGE_KEYS.lastHtmlSnapshot);
@@ -2278,6 +2874,7 @@ function clearPersistedHtmlSnapshot() {
   });
 }
 
+// 读取PersistedHTML快照。
 async function readPersistedHtmlSnapshot() {
   try {
     const sessionSnapshot = sessionStorage.getItem(STORAGE_KEYS.lastHtmlSessionSnapshot) || '';
@@ -2298,6 +2895,7 @@ async function readPersistedHtmlSnapshot() {
   }
 }
 
+// 处理hydrate会话HTMLWithPersisted媒体。
 function hydrateSessionHtmlWithPersistedMedia(html, mediaAssetStore = {}) {
   const text = String(html || '').trim();
   if (!text || !text.includes('data-editor-media-id=')) return String(html || '');
@@ -2320,6 +2918,7 @@ function hydrateSessionHtmlWithPersistedMedia(html, mediaAssetStore = {}) {
   return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
 }
 
+// 构建Persisted文件夹会话载荷。
 async function buildPersistedFolderSessionPayload() {
   if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.folderHtmlFiles.length) {
     return null;
@@ -2332,6 +2931,7 @@ async function buildPersistedFolderSessionPayload() {
     sessions[fileKey] = {
       key: session.key || fileKey,
       fileName: session.fileName || '',
+      relativePath: session.relativePath || '',
       html: hydrateSessionHtmlWithPersistedMedia(session.html, mediaAssetStore),
       baseHtml: session.baseHtml || '',
       history: Array.isArray(session.history) ? [...session.history] : [],
@@ -2358,6 +2958,7 @@ async function buildPersistedFolderSessionPayload() {
   };
 }
 
+// 调度文件夹会话持久化。
 function scheduleFolderSessionPersist() {
   clearTimeout(persistFolderSessionTimer);
   persistFolderSessionTimer = window.setTimeout(() => {
@@ -2365,6 +2966,7 @@ function scheduleFolderSessionPersist() {
   }, 180);
 }
 
+// 持久化文件夹会话状态。
 async function persistFolderSessionState() {
   captureCurrentFileSession({ schedulePersist: false });
   const payload = await buildPersistedFolderSessionPayload();
@@ -2375,6 +2977,7 @@ async function persistFolderSessionState() {
   await setStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY, payload);
 }
 
+// 读取Persisted文件夹会话。
 async function readPersistedFolderSession() {
   try {
     return await getStoredFolderSession(SNAPSHOT_LAST_FOLDER_SESSION_KEY);
@@ -2383,6 +2986,7 @@ async function readPersistedFolderSession() {
   }
 }
 
+// 应用Persisted文件夹Sessions。
 function applyPersistedFolderSessions(persisted = null, htmlFiles = []) {
   if (!persisted?.sessions) return;
   const availableKeys = new Set(htmlFiles.map(item => item.key));
@@ -2392,6 +2996,7 @@ function applyPersistedFolderSessions(persisted = null, htmlFiles = []) {
     state.folderFileSessions[fileKey] = {
       key: session.key || fileKey,
       fileName: session.fileName || '',
+      relativePath: session.relativePath || '',
       html: hydrateSessionHtmlWithPersistedMedia(session.html, mediaAssetStore),
       baseHtml: session.baseHtml || '',
       history: Array.isArray(session.history) ? [...session.history] : [],
@@ -2406,23 +3011,27 @@ function applyPersistedFolderSessions(persisted = null, htmlFiles = []) {
   });
 }
 
+// 判断是否存在HeavyEmbedded媒体Data。
 function hasHeavyEmbeddedMediaData(html) {
   if (!html) return false;
   return /\b(?:src|poster)=["']data:(?:image|video)\/[^"']{4096,}["']/i.test(html);
 }
 
+// 判断是否存在Ephemeral媒体预览。
 function hasEphemeralMediaPreview(html) {
   if (!html) return false;
   return html.includes('data-editor-media-id=')
     || /\b(?:src|poster)=["']blob:/i.test(html);
 }
 
+// 处理should持久化HTML快照。
 function shouldPersistHtmlSnapshot(html) {
   if (!html) return false;
   if (hasEphemeralMediaPreview(html)) return false;
   return true;
 }
 
+// 调度快照持久化。
 function scheduleSnapshotPersist(html) {
   clearTimeout(persistSnapshotTimer);
   persistSnapshotTimer = window.setTimeout(() => {
@@ -2434,6 +3043,7 @@ function scheduleSnapshotPersist(html) {
   }
 }
 
+// 判断是否存在交互本地内容。
 function hasInteractiveLocalContent(html) {
   const text = String(html || '');
   return /<script\b/i.test(text)
@@ -2441,18 +3051,286 @@ function hasInteractiveLocalContent(html) {
     || /\b(?:href|src)\s*=\s*["']javascript:/i.test(text);
 }
 
+// 判断是否存在需要整包解析的相对资源引用。
+function hasRelativeLocalAssetReferences(html) {
+  const text = String(html || '');
+  if (!text) return false;
+  return /\b(?:src|href|poster)\s*=\s*["'](?!https?:|data:|blob:|mailto:|tel:|javascript:|about:|#|\/\/)[^"']+["']/i.test(text)
+    || /\bsrcset\s*=\s*["'](?!https?:|data:|blob:|mailto:|tel:|javascript:|about:|#|\/\/)[^"']+["']/i.test(text)
+    || /\bstyle\s*=\s*["'][^"']*url\((?!['"]?(?:https?:|data:|blob:|mailto:|tel:|javascript:|about:|#|\/\/))[^)]+\)/i.test(text)
+    || /<style\b[^>]*>[\s\S]*?url\((?!['"]?(?:https?:|data:|blob:|mailto:|tel:|javascript:|about:|#|\/\/))[^)]+\)/i.test(text);
+}
+
+// 判断是否存在典型的本地网页资源包标记。
+function hasLocalPackageSnapshotMarkers(html) {
+  return /(?:^|[./\\])[^"'\\s>]*_files[\\/]/i.test(String(html || ''));
+}
+
+// 判断是否应按本地快照模式渲染资源包页面。
+function shouldUseLocalSnapshotMode(html) {
+  return state.currentSourceType === 'local'
+    && hasLocalPreviewResourceContext()
+    && (hasLocalPackageSnapshotMarkers(html) || hasRelativeLocalAssetReferences(html));
+}
+
+// 判断字符串是否像一段可直接展示的 HTML 正文。
+function looksLikeEmbeddedArticleHtml(text) {
+  const value = String(text || '').trim();
+  return value.length > 240 && /<(?:p|div|h1|h2|h3|img|section)\b/i.test(value);
+}
+
+// 解析脚本里可能经过编码的 JSON 文本。
+function parseEmbeddedJsonScriptText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+
+  const candidates = [raw];
+  if (/^%7[BbDd]/.test(raw)) {
+    try {
+      candidates.unshift(decodeURIComponent(raw));
+    } catch {}
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+  }
+  return null;
+}
+
+// 转义文本，避免把元信息写回DOM时引入意外HTML。
+function escapeHtmlText(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// 规范化文章标题，去掉站点尾缀。
+function normalizeEmbeddedArticleTitle(title, fallbackTitle = '') {
+  const value = String(title || fallbackTitle || '').trim();
+  const normalized = value.replace(/\s*-\s*(?:今日头条|头条|懂车帝|西瓜视频)\s*$/i, '').trim();
+  return normalized || '文章内容';
+}
+
+// 从嵌入式 JSON 中提取正文和元信息候选值。
+function collectEmbeddedArticleCandidate(value, candidate) {
+  if (!value) return candidate;
+
+  if (typeof value === 'string') {
+    if (looksLikeEmbeddedArticleHtml(value) && value.length > candidate.html.length) {
+      candidate.html = value;
+    }
+    return candidate;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach(item => collectEmbeddedArticleCandidate(item, candidate));
+    return candidate;
+  }
+
+  if (typeof value !== 'object') return candidate;
+
+  Object.entries(value).forEach(([key, item]) => {
+    const lowerKey = key.toLowerCase();
+    if (!candidate.title && typeof item === 'string' && /^(?:title|headline|subject)$/.test(lowerKey) && item.length <= 200) {
+      candidate.title = item.trim();
+    }
+    if (!candidate.source && typeof item === 'string' && /^(?:source|media|authorname)$/.test(lowerKey) && item.length <= 80) {
+      candidate.source = item.trim();
+    }
+    if (!candidate.publishTime && typeof item === 'string' && /^(?:publishtime|datepublished|time|createdat)$/.test(lowerKey) && item.length <= 80) {
+      candidate.publishTime = item.trim();
+    }
+    if (!candidate.source && lowerKey === 'author' && item && typeof item === 'object' && typeof item.name === 'string') {
+      candidate.source = item.name.trim();
+    }
+    collectEmbeddedArticleCandidate(item, candidate);
+  });
+
+  return candidate;
+}
+
+// 读取头条保存页里的结构化正文数据。
+function extractToutiaoRenderArticleData(doc) {
+  const renderScript = doc?.querySelector('script#RENDER_DATA');
+  if (!renderScript) return null;
+
+  const parsed = parseEmbeddedJsonScriptText(renderScript.textContent || '');
+  const data = parsed?.data;
+  if (!data || !looksLikeEmbeddedArticleHtml(data.content)) return null;
+
+  return {
+    html: String(data.content || ''),
+    title: String(data.title || '').trim(),
+    source: String(data.source || '').trim(),
+    publishTime: String(data.publishTime || '').trim(),
+    isOriginal: Boolean(data.isOriginal),
+  };
+}
+
+// 通用提取脚本里的静态正文候选。
+function extractGenericEmbeddedArticleData(doc) {
+  const candidate = { html: '', title: '', source: '', publishTime: '' };
+  const scripts = Array.from(doc.querySelectorAll('script[type="application/json"]'));
+  scripts.forEach(script => {
+    const parsed = parseEmbeddedJsonScriptText(script.textContent || '');
+    if (parsed) {
+      collectEmbeddedArticleCandidate(parsed, candidate);
+    }
+  });
+
+  return looksLikeEmbeddedArticleHtml(candidate.html) ? candidate : null;
+}
+
+// 判断保存页里是否已经存在可直接展示的静态文章DOM。
+function hasRenderableLocalSnapshotDom(doc) {
+  const articleNode = doc?.querySelector('.article-content .tt-article-content, .article-content article.syl-page-article, .article-detail-container .main .article-content');
+  if (!articleNode) return false;
+  return String(articleNode.textContent || '').replace(/\s+/g, '').length >= 120;
+}
+
+// 为本地快照模式注入仅用于编辑器预览的布局覆盖。
+function injectLocalSnapshotPreviewStyle(doc) {
+  if (!doc?.head || !doc?.body) return;
+
+  doc.documentElement.classList.add('editor-local-snapshot-mode');
+  doc.body.classList.add('editor-local-snapshot-mode');
+
+  let styleNode = doc.getElementById('editor-local-snapshot-preview-style');
+  if (!styleNode) {
+    styleNode = doc.createElement('style');
+    styleNode.id = 'editor-local-snapshot-preview-style';
+    doc.head.appendChild(styleNode);
+  }
+
+  styleNode.textContent = `
+    html.editor-local-snapshot-mode,
+    body.editor-local-snapshot-mode {
+      background: #fff !important;
+    }
+    body.editor-local-snapshot-mode {
+      min-width: 0 !important;
+      overflow-x: auto;
+    }
+    body.editor-local-snapshot-mode #root {
+      min-width: 0 !important;
+    }
+    body.editor-local-snapshot-mode .ttp-sticky-container,
+    body.editor-local-snapshot-mode .ttp-toolbar,
+    body.editor-local-snapshot-mode .left-sidebar,
+    body.editor-local-snapshot-mode .right-sidebar,
+    body.editor-local-snapshot-mode .detail-hotboard,
+    body.editor-local-snapshot-mode .media-info,
+    body.editor-local-snapshot-mode .hot-video {
+      display: none !important;
+    }
+    body.editor-local-snapshot-mode .article-detail-container {
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: 980px !important;
+      margin: 0 auto !important;
+      padding: 24px 24px 48px !important;
+    }
+    body.editor-local-snapshot-mode .article-detail-container > .main,
+    body.editor-local-snapshot-mode .article-detail-container .main {
+      display: block !important;
+      width: auto !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      vertical-align: top !important;
+    }
+    body.editor-local-snapshot-mode .expand-container {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    body.editor-local-snapshot-mode .expand-container .expand-button-wrapper {
+      display: none !important;
+    }
+    body.editor-local-snapshot-mode .article-content .tt-article-content,
+    body.editor-local-snapshot-mode .article-content article.syl-page-article {
+      overflow-wrap: break-word;
+    }
+    body.editor-local-snapshot-mode .tableWrapper,
+    body.editor-local-snapshot-mode .syl-table-wrap {
+      overflow-x: auto;
+    }
+    body.editor-local-snapshot-mode img,
+    body.editor-local-snapshot-mode video,
+    body.editor-local-snapshot-mode table {
+      max-width: 100% !important;
+      height: auto;
+    }
+  `;
+}
+
+// 尝试把脚本里的正文数据重建为静态文章页面。
+function tryBuildStaticArticleFallback(doc) {
+  if (!doc) return false;
+
+  const candidate = extractToutiaoRenderArticleData(doc) || extractGenericEmbeddedArticleData(doc);
+  if (!candidate || !looksLikeEmbeddedArticleHtml(candidate.html)) return false;
+
+  const title = normalizeEmbeddedArticleTitle(candidate.title, doc.title);
+  const source = String(candidate.source || '').trim();
+  const publishTime = String(candidate.publishTime || '').trim();
+  const metaParts = [];
+  if (candidate.isOriginal) {
+    metaParts.push('<span class="original-tag">原创</span>');
+  }
+  if (publishTime) {
+    metaParts.push(`<span>${escapeHtmlText(publishTime)}</span>`);
+  }
+  if (publishTime && source) {
+    metaParts.push('<span class="dot">·</span>');
+  }
+  if (source) {
+    metaParts.push(`<span class="name">${escapeHtmlText(source)}</span>`);
+  }
+
+  doc.title = title;
+  doc.body.innerHTML = `
+    <div id="root">
+      <div role="main" class="article-detail-container">
+        <div class="main">
+          <div class="show-monitor">
+            <div class="article-content">
+              <h1>${escapeHtmlText(title)}</h1>
+              <div class="article-meta">${metaParts.join('')}</div>
+              <div>
+                <article class="syl-article-base syl-page-article tt-article-content syl-device-pc">
+                  ${candidate.html}
+                </article>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return true;
+}
+
+// 判断URL快照模式。
 function isUrlSnapshotMode() {
   return state.currentSourceType === 'url';
 }
 
+// 判断本地交互模式。
 function isLocalInteractiveMode() {
   return state.currentSourceType === 'local' && state.preserveLocalInteractions;
 }
 
+// 判断是否使用ScopedEditing模式。
 function usesScopedEditingMode() {
   return isUrlSnapshotMode() || isLocalInteractiveMode();
 }
 
+// 获取可编辑Host。
 function getEditableHost() {
   if (!state.iframeBody) return null;
   if (!usesScopedEditingMode()) return state.iframeBody;
@@ -2461,6 +3339,7 @@ function getEditableHost() {
     : null;
 }
 
+// 获取Live选区范围。
 function getLiveSelectionRange() {
   if (!state.iframeDoc) return null;
   const sel = state.iframeDoc.getSelection();
@@ -2468,6 +3347,7 @@ function getLiveSelectionRange() {
   return sel.getRangeAt(0);
 }
 
+// 解析可编辑块目标。
 function resolveEditableBlockTarget(target) {
   if (!target || !state.iframeBody) return null;
   let node = target.nodeType === 3 ? target.parentElement : target;
@@ -2494,6 +3374,7 @@ function resolveEditableBlockTarget(target) {
   return isUrlSnapshotMode() ? inlineCandidate : null;
 }
 
+// 判断ReasonableURL可编辑块。
 function isReasonableUrlEditableBlock(node) {
   if (!isElementNode(node) || !node.matches(BLOCK_TARGET_SELECTOR)) return false;
 
@@ -2509,6 +3390,7 @@ function isReasonableUrlEditableBlock(node) {
   ));
 }
 
+// 判断ReasonableURL可编辑Inline。
 function isReasonableUrlEditableInline(node) {
   if (!isElementNode(node)) return false;
   if (!/^(A|SPAN|STRONG|EM|B|I|U|S|SMALL|MARK|CODE|LABEL)$/i.test(node.tagName)) {
@@ -2524,6 +3406,7 @@ function isReasonableUrlEditableInline(node) {
   ));
 }
 
+// 处理deactivate可编辑块。
 function deactivateEditableBlock() {
   if (!state.activeEditableBlock) return;
   if (state.iframeBody?.contains(state.activeEditableBlock)) {
@@ -2532,6 +3415,7 @@ function deactivateEditableBlock() {
   state.activeEditableBlock = null;
 }
 
+// 处理activate可编辑块。
 function activateEditableBlock(block) {
   if (!usesScopedEditingMode() || !state.iframeBody || !block || block === state.iframeBody) return false;
   if (!state.iframeBody.contains(block)) return false;
@@ -2544,6 +3428,7 @@ function activateEditableBlock(block) {
   return true;
 }
 
+// 确保可编辑HostFrom选区。
 function ensureEditableHostFromSelection() {
   if (!usesScopedEditingMode()) return getEditableHost();
 
@@ -2560,6 +3445,7 @@ function ensureEditableHostFromSelection() {
   return getEditableHost();
 }
 
+// 判断是否存在文本选区InHost。
 function hasTextSelectionInHost(host = getEditableHost()) {
   if (!host || !state.iframeDoc) return false;
   const sel = state.iframeDoc.getSelection();
@@ -2567,6 +3453,15 @@ function hasTextSelectionInHost(host = getEditableHost()) {
   return host.contains(sel.anchorNode) || host.contains(sel.focusNode);
 }
 
+// 判断Host内是否存在折叠光标。
+function hasCollapsedCaretInHost(host = getEditableHost()) {
+  if (!host || !state.iframeDoc) return false;
+  const sel = state.iframeDoc.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false;
+  return !!sel.anchorNode && host.contains(sel.anchorNode);
+}
+
+// 隐藏工具栏UI。
 function hideToolbarUI(resetControls = true) {
   toggleBlockPanel(false);
   floatingToolbar.classList.remove('visible');
@@ -2577,6 +3472,7 @@ function hideToolbarUI(resetControls = true) {
   }
 }
 
+// 清理选区状态。
 function clearSelectionState() {
   state.savedTextRange = null;
   state.toolbarInteracting = false;
@@ -2592,6 +3488,7 @@ function clearSelectionState() {
   deselectMedia();
 }
 
+// 处理dismiss选区。
 function dismissSelection() {
   hideToolbarUI();
   clearSelectionState();
@@ -2599,6 +3496,7 @@ function dismissSelection() {
   resetToolbarTextControls();
 }
 
+// 处理finish工具栏Interaction。
 function finishToolbarInteraction(shouldRefresh = true) {
   state.toolbarInteracting = false;
   if (shouldRefresh) {
@@ -2606,6 +3504,7 @@ function finishToolbarInteraction(shouldRefresh = true) {
   }
 }
 
+// 记录历史快照。
 function recordHistorySnapshot(options = {}) {
   const { immediate = false, force = false } = options;
   if (state.isApplyingHistory) return;
@@ -2638,6 +3537,7 @@ function recordHistorySnapshot(options = {}) {
   }
 }
 
+// 应用历史Entry。
 function applyHistoryEntry(html) {
   if (!html) return;
   state.isApplyingHistory = true;
@@ -2656,6 +3556,7 @@ function applyHistoryEntry(html) {
   }, 0);
 }
 
+// 执行撤销Edit。
 function undoEdit() {
   if (state.historyIndex <= 0) return;
   state.historyIndex -= 1;
@@ -2664,6 +3565,7 @@ function undoEdit() {
   showToast('已撤销');
 }
 
+// 执行重做Edit。
 function redoEdit() {
   if (state.historyIndex >= state.history.length - 1) return;
   state.historyIndex += 1;
@@ -2672,15 +3574,18 @@ function redoEdit() {
   showToast('已重做');
 }
 
+// 更新历史按钮。
 function updateHistoryButtons() {
   btnUndo.disabled = state.historyIndex <= 0;
   btnRedo.disabled = state.historyIndex >= state.history.length - 1 || state.historyIndex === -1;
 }
 
+// 设置URL弹窗状态。
 function setUrlDialogStatus(message) {
   urlDialogStatus.textContent = message;
 }
 
+// 设置URL弹窗Loading。
 function setUrlDialogLoading(isLoading) {
   state.isFetchingUrl = isLoading;
   btnFetchUrlSnapshot.disabled = isLoading;
@@ -2693,6 +3598,7 @@ function setUrlDialogLoading(isLoading) {
   btnCloseUrlDialog.disabled = isLoading;
 }
 
+// 打开URL弹窗。
 function openUrlDialog() {
   state.urlDialogOpen = true;
   urlDialogBackdrop.classList.add('visible');
@@ -2704,12 +3610,14 @@ function openUrlDialog() {
   requestAnimationFrame(() => urlInput.focus());
 }
 
+// 关闭URL弹窗。
 function closeUrlDialog(force = false) {
   if (state.isFetchingUrl && !force) return;
   state.urlDialogOpen = false;
   urlDialogBackdrop.classList.remove('visible');
 }
 
+// 标准化URL输入。
 function normalizeUrlInput(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -2717,6 +3625,7 @@ function normalizeUrlInput(value) {
   return `https://${raw}`;
 }
 
+// 处理absolutizeURL。
 function absolutizeUrl(url, baseUrl) {
   try {
     return new URL(url, baseUrl).href;
@@ -2725,6 +3634,7 @@ function absolutizeUrl(url, baseUrl) {
   }
 }
 
+// 重写Srcset。
 function rewriteSrcset(srcset, baseUrl) {
   return String(srcset || '')
     .split(',')
@@ -2739,6 +3649,7 @@ function rewriteSrcset(srcset, baseUrl) {
     .join(', ');
 }
 
+// 重写CSSURL。
 function rewriteCssUrls(cssText, baseUrl) {
   return String(cssText || '').replace(/url\((['"]?)([^'")]+)\1\)/gi, (full, quote, url) => {
     const trimmed = String(url).trim();
@@ -2747,10 +3658,12 @@ function rewriteCssUrls(cssText, baseUrl) {
   });
 }
 
+// 创建Rendered导入会话Id。
 function createRenderedImportSessionId() {
   return `html-editor-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// 构建Rendered快照脚本。
 function buildRenderedSnapshotScript({ url, sessionId }) {
   const payload = JSON.stringify({ url, sessionId });
   return `(async () => {
@@ -2795,6 +3708,7 @@ function buildRenderedSnapshotScript({ url, sessionId }) {
 })();`;
 }
 
+// 复制文本ToClipboard。
 async function copyTextToClipboard(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -2817,6 +3731,7 @@ async function copyTextToClipboard(text) {
   return true;
 }
 
+// 处理startRendered导入Flow。
 async function startRenderedImportFlow(url) {
   const normalizedUrl = normalizeUrlInput(url);
   if (!normalizedUrl) {
@@ -2848,6 +3763,7 @@ async function startRenderedImportFlow(url) {
   showToast('采集脚本已复制，按提示在目标页控制台执行');
 }
 
+// 处理try解析Rendered导入载荷。
 function tryParseRenderedImportPayload(raw) {
   if (raw && typeof raw === 'object') {
     if (raw.source !== 'html-editor-rendered-import' || !raw.url || !raw.html) {
@@ -2871,6 +3787,7 @@ function tryParseRenderedImportPayload(raw) {
   return parsed;
 }
 
+// 导入Rendered快照载荷。
 async function importRenderedSnapshotPayload(raw, options = {}) {
   const payload = tryParseRenderedImportPayload(raw);
   if (state.renderedImportSessionId && payload.sessionId && payload.sessionId !== state.renderedImportSessionId && !options.ignoreSession) {
@@ -2881,6 +3798,7 @@ async function importRenderedSnapshotPayload(raw, options = {}) {
   state.renderedImportSessionId = '';
 }
 
+// 标准化FetchedHTML。
 function normalizeFetchedHtml(html, sourceUrl) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
@@ -2948,6 +3866,7 @@ function normalizeFetchedHtml(html, sourceUrl) {
   return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
 }
 
+// 导入URL快照。
 async function importUrlSnapshot({ url, html }) {
   const normalizedUrl = normalizeUrlInput(url);
   if (!normalizedUrl) {
@@ -2955,9 +3874,12 @@ async function importUrlSnapshot({ url, html }) {
     return;
   }
 
+  revokeLocalPreviewObjectUrls();
+  resetLocalPreviewLookupCaches();
   state.currentFileHandle = null;
   state.currentDirHandle = null;
   state.currentFileName = `URL 快照 - ${new URL(normalizedUrl).hostname}`;
+  state.currentFileRelativePath = '';
   state.currentDirName = '';
   state.currentSourceUrl = normalizedUrl;
   state.currentSourceType = 'url';
@@ -2984,6 +3906,7 @@ async function importUrlSnapshot({ url, html }) {
   showToast('URL 快照已导入');
 }
 
+// 抓取URL快照。
 async function fetchUrlSnapshot(url) {
   const normalizedUrl = normalizeUrlInput(url);
   if (!normalizedUrl) {
@@ -3021,12 +3944,19 @@ btnRedo.addEventListener('click', () => {
   redoEdit();
 });
 
+// 加载编辑器内容。
 function loadEditorContent(html, options = {}) {
   const { resetMediaAssets = true } = options;
   if (resetMediaAssets) {
     clearMediaAssetStore();
   }
-  state.preserveLocalInteractions = state.currentSourceType === 'local' && hasInteractiveLocalContent(html);
+  const hasDetachedLocalAssets = state.currentSourceType === 'local'
+    && !hasLocalPreviewResourceContext()
+    && hasRelativeLocalAssetReferences(html);
+  const useLocalSnapshotMode = shouldUseLocalSnapshotMode(html);
+  state.preserveLocalInteractions = state.currentSourceType === 'local'
+    && !useLocalSnapshotMode
+    && hasInteractiveLocalContent(html);
   state.recordHistoryOnLoad = true;
   initIframe(html);
   persistHtmlSnapshot(html);
@@ -3037,6 +3967,10 @@ function loadEditorContent(html, options = {}) {
   }
   statusInfo.textContent = state.currentSourceType === 'url'
     ? 'URL 快照模式 — 可编辑快照 | 建议导出为新文件'
+    : hasDetachedLocalAssets
+      ? '多文件资源页 — 当前只加载了单个 HTML；请使用“打开文件夹”加载整包目录以恢复样式/图片/脚本'
+    : useLocalSnapshotMode
+      ? '本地资源快照模式 — 已按多文件静态页渲染 | 目录内样式/图片会一起解析'
     : (state.preserveLocalInteractions
       ? '本地交互模式 — 保留页面 JS | 点击文本块后编辑'
       : 'Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式');
@@ -3118,6 +4052,7 @@ window.addEventListener('message', async (event) => {
   }
 });
 
+// 打开句柄Database。
 function openHandleDatabase() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) {
@@ -3142,6 +4077,7 @@ function openHandleDatabase() {
   });
 }
 
+// 设置Stored句柄。
 async function setStoredHandle(key, handle) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3154,6 +4090,7 @@ async function setStoredHandle(key, handle) {
   });
 }
 
+// 获取Stored句柄。
 async function getStoredHandle(key) {
   const db = await openHandleDatabase();
   if (!db) return null;
@@ -3166,6 +4103,7 @@ async function getStoredHandle(key) {
   });
 }
 
+// 清理Stored句柄。
 async function clearStoredHandle(key) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3178,6 +4116,7 @@ async function clearStoredHandle(key) {
   });
 }
 
+// 设置Stored快照。
 async function setStoredSnapshot(key, html) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3190,6 +4129,7 @@ async function setStoredSnapshot(key, html) {
   });
 }
 
+// 获取Stored快照。
 async function getStoredSnapshot(key) {
   const db = await openHandleDatabase();
   if (!db) return '';
@@ -3202,6 +4142,7 @@ async function getStoredSnapshot(key) {
   });
 }
 
+// 清理Stored快照。
 async function clearStoredSnapshot(key) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3214,6 +4155,7 @@ async function clearStoredSnapshot(key) {
   });
 }
 
+// 设置Stored文件夹会话。
 async function setStoredFolderSession(key, payload) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3226,6 +4168,7 @@ async function setStoredFolderSession(key, payload) {
   });
 }
 
+// 获取Stored文件夹会话。
 async function getStoredFolderSession(key) {
   const db = await openHandleDatabase();
   if (!db) return null;
@@ -3238,6 +4181,7 @@ async function getStoredFolderSession(key) {
   });
 }
 
+// 清理Stored文件夹会话。
 async function clearStoredFolderSession(key) {
   const db = await openHandleDatabase();
   if (!db) return;
@@ -3250,6 +4194,7 @@ async function clearStoredFolderSession(key) {
   });
 }
 
+// 查询句柄权限。
 async function queryHandlePermission(handle, mode = 'read') {
   if (!handle?.queryPermission) return true;
   try {
@@ -3259,6 +4204,7 @@ async function queryHandlePermission(handle, mode = 'read') {
   }
 }
 
+// 请求句柄权限。
 async function requestHandlePermission(handle, mode = 'readwrite') {
   if (!handle?.requestPermission) return true;
   try {
@@ -3268,23 +4214,37 @@ async function requestHandlePermission(handle, mode = 'readwrite') {
   }
 }
 
-async function getFolderHtmlFiles(dirHandle) {
-  if (!dirHandle?.entries) return [];
+// 递归收集文件夹中的 HTML 文件。
+async function collectFolderHtmlFiles(dirHandle, prefix = '', files = []) {
+  if (!dirHandle?.entries) return files;
 
-  const files = [];
   for await (const [name, handle] of dirHandle.entries()) {
-    if (handle?.kind !== 'file') continue;
-    if (!/\.html?$/i.test(name)) continue;
+    if (!handle) continue;
+    if (handle.kind === 'directory') {
+      await collectFolderHtmlFiles(handle, `${prefix}${name}/`, files);
+      continue;
+    }
+    if (handle.kind !== 'file' || !/\.html?$/i.test(name)) continue;
+    const relativePath = normalizeFolderRelativePath(`${prefix}${name}`);
     files.push({
-      key: createFolderFileKey(name),
+      key: createFolderFileKey(relativePath),
       name,
-      relativePath: normalizeFolderRelativePath(name),
+      relativePath,
       handle,
     });
   }
+
+  return files;
+}
+
+// 获取文件夹HTML文件。
+async function getFolderHtmlFiles(dirHandle) {
+  if (!dirHandle?.entries) return [];
+  const files = await collectFolderHtmlFiles(dirHandle);
   return sortFolderHtmlFiles(files);
 }
 
+// 持久化当前文件夹句柄。
 async function persistCurrentFolderHandle() {
   try {
     if (state.currentDirHandle) {
@@ -3297,6 +4257,7 @@ async function persistCurrentFolderHandle() {
   }
 }
 
+// 处理activate文件夹文件。
 async function activateFolderFile(fileKey, options = {}) {
   const { preserveSession = true, showToastMessage = true } = options;
   if (!state.currentDirHandle || !fileKey) return false;
@@ -3344,6 +4305,7 @@ async function activateFolderFile(fileKey, options = {}) {
   await setCurrentFileContext({
     fileHandle: target.handle,
     fileName: target.name,
+    fileRelativePath: target.relativePath || target.name,
     dirHandle: state.currentDirHandle,
     dirName: state.currentDirName,
   });
@@ -3360,6 +4322,7 @@ async function activateFolderFile(fileKey, options = {}) {
   return true;
 }
 
+// 打开目录句柄。
 async function openDirectoryHandle(dirHandle, options = {}) {
   const { preferredFileKey = '', showToastMessage = true, revealSidebar = false } = options;
   if (!dirHandle) return false;
@@ -3413,12 +4376,18 @@ async function openDirectoryHandle(dirHandle, options = {}) {
   });
 }
 
-async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName }) {
+// 设置当前文件上下文。
+async function setCurrentFileContext({ fileHandle, fileName, fileRelativePath, dirHandle, dirName }) {
+  const nextDirHandle = dirHandle || null;
+  if (state.currentDirHandle !== nextDirHandle) {
+    resetLocalPreviewLookupCaches();
+  }
   if (!dirHandle) {
     state.folderHtmlFiles = [];
     state.folderFileSessions = {};
     state.activeFolderFileKey = '';
     state.currentFileBaseHtml = '';
+    state.currentFileRelativePath = '';
     try {
       await clearStoredHandle(HANDLE_LAST_DIR_KEY);
     } catch (err) {
@@ -3433,6 +4402,7 @@ async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName 
   state.currentFileHandle = fileHandle || null;
   state.currentDirHandle = dirHandle || null;
   state.currentFileName = fileName || fileHandle?.name || '';
+  state.currentFileRelativePath = fileRelativePath || fileName || fileHandle?.name || '';
   state.currentDirName = dirName || dirHandle?.name || '';
   state.currentSourceUrl = '';
   state.currentSourceType = 'local';
@@ -3451,6 +4421,7 @@ async function setCurrentFileContext({ fileHandle, fileName, dirHandle, dirName 
   }
 }
 
+// 恢复Last会话。
 async function restoreLastSession() {
   const meta = readPersistedFileMeta();
   const persistedSnapshot = await readPersistedHtmlSnapshot();
@@ -3572,6 +4543,7 @@ document.addEventListener('mouseup', () => {
 /* =============================================
    Floating Toolbar
    ============================================= */
+// 初始化工具栏Controls。
 function initToolbarControls() {
   for (let size = FONT_SIZE_MIN; size <= FONT_SIZE_MAX; size += 1) {
     const option = document.createElement('option');
@@ -3592,11 +4564,13 @@ function initToolbarControls() {
   setColorDisplayValue(tbColor.value);
 }
 
+// 处理format工具栏Number。
 function formatToolbarNumber(value) {
   const rounded = Math.round(value * 100) / 100;
   return rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
 }
 
+// 设置选中DisplayValue。
 function setSelectDisplayValue(select, value, label) {
   select.querySelectorAll('option[data-dynamic="true"]').forEach(option => option.remove());
 
@@ -3617,10 +4591,12 @@ function setSelectDisplayValue(select, value, label) {
   select.value = value;
 }
 
+// 设置字体尺寸DisplayValue。
 function setFontSizeDisplayValue(value) {
   tbFontSize.value = value || '';
 }
 
+// 标准化Hex颜色。
 function normalizeHexColor(value) {
   if (!value) return '';
   const color = String(value).trim().toLowerCase();
@@ -3650,6 +4626,7 @@ function normalizeHexColor(value) {
     .join('');
 }
 
+// 处理highlight颜色Swatches。
 function highlightColorSwatches(color) {
   const normalized = normalizeHexColor(color);
   $$('.tb-swatch[data-color]').forEach(btn => {
@@ -3657,6 +4634,7 @@ function highlightColorSwatches(color) {
   });
 }
 
+// 设置颜色DisplayValue。
 function setColorDisplayValue(value) {
   const normalized = normalizeHexColor(value);
   if (normalized) {
@@ -3665,6 +4643,7 @@ function setColorDisplayValue(value) {
   highlightColorSwatches(normalized);
 }
 
+// 创建颜色Swatch。
 function createColorSwatch(color, title) {
   const swatch = document.createElement('button');
   swatch.type = 'button';
@@ -3681,6 +4660,7 @@ function createColorSwatch(color, title) {
   return swatch;
 }
 
+// 渲染PresetColors。
 function renderPresetColors() {
   tbPresetColors.innerHTML = '';
   PRESET_TEXT_COLORS.forEach(({ label, value }) => {
@@ -3688,6 +4668,7 @@ function renderPresetColors() {
   });
 }
 
+// 渲染RecentColors。
 function renderRecentColors() {
   tbRecentColors.innerHTML = '';
 
@@ -3707,6 +4688,7 @@ function renderRecentColors() {
   highlightColorSwatches(tbColor.value);
 }
 
+// 加载RecentColors。
 function loadRecentColors() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.recentColors) || '[]');
@@ -3718,6 +4700,7 @@ function loadRecentColors() {
   }
 }
 
+// 持久化RecentColors。
 function persistRecentColors() {
   try {
     localStorage.setItem(STORAGE_KEYS.recentColors, JSON.stringify(state.recentColors));
@@ -3726,6 +4709,7 @@ function persistRecentColors() {
   }
 }
 
+// 处理pushRecent颜色。
 function pushRecentColor(color) {
   const normalized = normalizeHexColor(color);
   if (!normalized) return;
@@ -3736,6 +4720,7 @@ function pushRecentColor(color) {
   renderRecentColors();
 }
 
+// 获取块样式目标。
 function getBlockStyleTarget(range = null) {
   if (!state.iframeDoc || !state.iframeBody) return null;
 
@@ -3753,12 +4738,14 @@ function getBlockStyleTarget(range = null) {
   return target;
 }
 
+// 解析PixelValue。
 function parsePixelValue(value) {
   if (!value) return '';
   const numeric = Number.parseFloat(String(value));
   return Number.isFinite(numeric) ? String(Math.max(0, Math.round(numeric))) : '';
 }
 
+// 解析块边框宽度。
 function parseBlockBorderWidth(node) {
   if (!state.iframeDoc || !node) return '0';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node);
@@ -3767,12 +4754,14 @@ function parseBlockBorderWidth(node) {
   return !style || style === 'none' ? '0' : (width || '0');
 }
 
+// 解析块边框样式。
 function parseBlockBorderStyle(node) {
   if (!state.iframeDoc || !node) return 'none';
   const style = state.iframeDoc.defaultView.getComputedStyle(node).borderTopStyle;
   return style && style !== 'hidden' ? style : 'none';
 }
 
+// 解析块背景颜色。
 function parseBlockBackgroundColor(node) {
   if (!state.iframeDoc || !node) return '#ffffff';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node).backgroundColor;
@@ -3780,24 +4769,28 @@ function parseBlockBackgroundColor(node) {
   return normalized || '#ffffff';
 }
 
+// 解析块Radius。
 function parseBlockRadius(node) {
   if (!state.iframeDoc || !node) return '0';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node).borderTopLeftRadius;
   return parsePixelValue(computed) || '0';
 }
 
+// 解析块Padding。
 function parseBlockPadding(node) {
   if (!state.iframeDoc || !node) return '0';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node).paddingTop;
   return parsePixelValue(computed) || '0';
 }
 
+// 解析块Margin。
 function parseBlockMargin(node) {
   if (!state.iframeDoc || !node) return '0';
   const computed = state.iframeDoc.defaultView.getComputedStyle(node).marginTop;
   return parsePixelValue(computed) || '0';
 }
 
+// 更新块样式Availability。
 function updateBlockStyleAvailability(range) {
   const target = getBlockStyleTarget(range);
   const hasTarget = Boolean(target);
@@ -3811,6 +4804,7 @@ function updateBlockStyleAvailability(range) {
   return target;
 }
 
+// 处理同步块样式Controls。
 function syncBlockStyleControls(range) {
   const target = updateBlockStyleAvailability(range);
   const enabled = Boolean(target);
@@ -3852,11 +4846,13 @@ function syncBlockStyleControls(range) {
   tbMargin.value = BLOCK_SPACING_PRESETS.includes(margin) ? margin : '0';
 }
 
+// 重置块面板位置。
 function resetBlockPanelPosition() {
   tbBlockPanel.classList.remove('upward');
   tbBlockPanel.style.setProperty('--panel-shift', '0px');
 }
 
+// 处理位置块面板。
 function positionBlockPanel() {
   if (!tbBlockPanel.classList.contains('visible')) {
     resetBlockPanelPosition();
@@ -3885,6 +4881,7 @@ function positionBlockPanel() {
   });
 }
 
+// 切换块面板。
 function toggleBlockPanel(force) {
   const nextVisible = typeof force === 'boolean'
     ? force
@@ -3909,6 +4906,7 @@ window.addEventListener('resize', () => {
   }
 });
 
+// 应用块样式。
 function applyBlockStyle(patch = {}) {
   if (!state.iframeDoc) return;
   restoreSelection();
@@ -3958,6 +4956,7 @@ function applyBlockStyle(patch = {}) {
   setTimeout(updateToolbar, 30);
 }
 
+// 获取范围样式上下文。
 function getRangeStyleContext(range) {
   let inlineNode = range.startContainer;
   if (inlineNode.nodeType === 3) inlineNode = inlineNode.parentElement;
@@ -3972,6 +4971,7 @@ function getRangeStyleContext(range) {
   };
 }
 
+// 获取选区字体尺寸。
 function getSelectionFontSize(range) {
   if (!state.iframeDoc || !range) return null;
   const { inlineNode } = getRangeStyleContext(range);
@@ -3979,6 +4979,7 @@ function getSelectionFontSize(range) {
   return Number.isFinite(fontSize) ? fontSize : null;
 }
 
+// 标准化行高度Value。
 function normalizeLineHeightValue(rawValue, fontSize) {
   if (!rawValue) return '';
   const value = String(rawValue).trim();
@@ -4001,6 +5002,7 @@ function normalizeLineHeightValue(rawValue, fontSize) {
   return Number.isFinite(numeric) ? formatToolbarNumber(numeric) : '';
 }
 
+// 获取选区行高度。
 function getSelectionLineHeight(range, fontSize) {
   if (!state.iframeDoc || !range) return '';
   const { blockNode } = getRangeStyleContext(range);
@@ -4013,6 +5015,7 @@ function getSelectionLineHeight(range, fontSize) {
   return normalizeLineHeightValue(computed, fontSize);
 }
 
+// 获取选区文本颜色。
 function getSelectionTextColor(range) {
   if (!state.iframeDoc || !range) return '';
   const { inlineNode } = getRangeStyleContext(range);
@@ -4020,6 +5023,7 @@ function getSelectionTextColor(range) {
   return normalizeHexColor(computed);
 }
 
+// 处理同步工具栏文本Controls。
 function syncToolbarTextControls(range) {
   const fontSize = getSelectionFontSize(range);
   const fontSizeValue = fontSize ? formatToolbarNumber(fontSize) : '';
@@ -4032,6 +5036,7 @@ function syncToolbarTextControls(range) {
   setColorDisplayValue(textColor || tbColor.value);
 }
 
+// 重置工具栏文本Controls。
 function resetToolbarTextControls() {
   setFontSizeDisplayValue('');
   setSelectDisplayValue(tbLineHeight, '', '行高');
@@ -4039,6 +5044,7 @@ function resetToolbarTextControls() {
   syncBlockStyleControls(null);
 }
 
+// 更新工具栏。
 function updateToolbar() {
   if (!state.iframeReady) {
     hideToolbarUI();
@@ -4118,6 +5124,7 @@ function updateToolbar() {
   }
 }
 
+// 清理SelectedBlocks。
 function clearSelectedBlocks() {
   if (state.selectedBlock) {
     state.selectedBlock.classList.remove('selected-block');
@@ -4188,6 +5195,7 @@ tbLineHeight.addEventListener('blur', () => {
   requestAnimationFrame(updateToolbar);
 });
 
+// 应用文本颜色。
 function applyTextColor(color) {
   const normalized = normalizeHexColor(color);
   if (!normalized || !state.iframeDoc) return;
@@ -4306,6 +5314,7 @@ function saveSelection(range = null) {
   return true;
 }
 
+// 恢复选区。
 function restoreSelection() {
   if (!state.iframeDoc || !state.savedTextRange || !state.iframeBody) return false;
   const host = getEditableHost();
@@ -4324,6 +5333,7 @@ function restoreSelection() {
   return true;
 }
 
+// 恢复选区Around节点。
 function restoreSelectionAroundNodes(firstNode, lastNode) {
   if (!state.iframeDoc || !firstNode || !lastNode || !state.iframeBody) return false;
   const host = getEditableHost();
@@ -4344,6 +5354,7 @@ function restoreSelectionAroundNodes(firstNode, lastNode) {
   return true;
 }
 
+// 处理execiframeCmd。
 function execIframeCmd(cmd, value) {
   if (!state.iframeDoc) return;
   const host = getEditableHost();
@@ -4355,6 +5366,7 @@ function execIframeCmd(cmd, value) {
   setTimeout(updateToolbar, 50);
 }
 
+// 处理adjust字体尺寸。
 function adjustFontSize(delta) {
   if (!state.iframeDoc) return;
   const doc = state.iframeDoc;
@@ -4386,6 +5398,7 @@ function adjustFontSize(delta) {
   setTimeout(updateToolbar, 50);
 }
 
+// 应用字体尺寸。
 function applyFontSize(px) {
   if (!state.iframeDoc) return;
   const doc = state.iframeDoc;
@@ -4415,6 +5428,7 @@ function applyFontSize(px) {
   setTimeout(updateToolbar, 50);
 }
 
+// 应用行高度。
 function applyLineHeight(value) {
   if (!state.iframeDoc) return;
   const sel = state.iframeDoc.getSelection();
@@ -4464,6 +5478,7 @@ previewPane.addEventListener('mousedown', (e) => {
 /* =============================================
    Media Selection & Wrapping
    ============================================= */
+// 选中媒体。
 function selectMedia(el, type) {
   if (!state.iframeDoc) return;
   withTransientIframeMutationPause(() => {
@@ -4492,6 +5507,7 @@ function selectMedia(el, type) {
   });
 }
 
+// 处理deselect媒体。
 function deselectMedia() {
   withTransientIframeMutationPause(() => {
     if (state.selectedMedia) {
@@ -4512,6 +5528,7 @@ function deselectMedia() {
   });
 }
 
+// 处理addResizeHandles。
 function addResizeHandles(wrapper) {
   removeResizeHandles(wrapper);
   const dirs = ['nw', 'n', 'ne', 'w', 'e', 'sw', 's', 'se'];
@@ -4523,10 +5540,12 @@ function addResizeHandles(wrapper) {
   });
 }
 
+// 处理removeResizeHandles。
 function removeResizeHandles(wrapper) {
   wrapper.querySelectorAll('.resize-handle').forEach(h => h.remove());
 }
 
+// 处理add替换按钮。
 function addReplaceButton(wrapper, type) {
   removeReplaceButton(wrapper);
   const btn = state.iframeDoc.createElement('button');
@@ -4544,6 +5563,7 @@ function addReplaceButton(wrapper, type) {
   wrapper.appendChild(btn);
 }
 
+// 处理remove替换按钮。
 function removeReplaceButton(wrapper) {
   const btn = wrapper.querySelector('.media-replace-btn');
   if (btn) btn.remove();
@@ -4552,6 +5572,7 @@ function removeReplaceButton(wrapper) {
 /* =============================================
    Media Resize
    ============================================= */
+// 处理startResize。
 function startResize(e, dir, wrapper) {
   e.preventDefault();
   e.stopPropagation();
@@ -4579,6 +5600,7 @@ function startResize(e, dir, wrapper) {
   state.resizeHandleEl?.addEventListener('pointercancel', stopResize);
 }
 
+// 处理onResize。
 function onResize(e) {
   const dx = e.clientX - state.resizeStartX;
   const dy = e.clientY - state.resizeStartY;
@@ -4614,6 +5636,7 @@ function onResize(e) {
   }
 }
 
+// 处理stopResize。
 function stopResize() {
   document.removeEventListener('mousemove', onResize);
   document.removeEventListener('mouseup', stopResize);
@@ -4635,32 +5658,38 @@ function stopResize() {
 /* =============================================
    Trigger Image/Video Insert & Replace
    ============================================= */
+// 触发图片插入。
 function triggerImageInsert(target) {
   state.pendingImageTarget = target;
   $('#fileInputImage').click();
 }
 
+// 触发视频插入。
 function triggerVideoInsert(target) {
   state.pendingVideoTarget = target;
   $('#fileInputVideo').click();
 }
 
+// 触发图片替换。
 function triggerImageReplace(imgEl) {
   state.pendingImageTarget = imgEl;
   $('#fileInputImage').click();
 }
 
+// 触发视频替换。
 function triggerVideoReplace(videoEl) {
   state.pendingVideoTarget = videoEl;
   $('#fileInputVideo').click();
 }
 
+// 创建媒体资源Id。
 function createMediaAssetId() {
   const id = `editor-media-${state.nextMediaAssetId}`;
   state.nextMediaAssetId += 1;
   return id;
 }
 
+// 清理媒体资源存储。
 function clearMediaAssetStore() {
   Object.values(state.mediaAssetStore).forEach(asset => {
     if (asset?.previewUrl?.startsWith('blob:')) {
@@ -4672,6 +5701,7 @@ function clearMediaAssetStore() {
   state.mediaAssetStore = {};
 }
 
+// 处理register媒体资源。
 function registerMediaAsset(el, kind, file, previewUrl) {
   const assetId = createMediaAssetId();
   const asset = {
@@ -4686,6 +5716,7 @@ function registerMediaAsset(el, kind, file, previewUrl) {
   return asset;
 }
 
+// 读取文件AsDataURL。
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -4695,6 +5726,7 @@ function readFileAsDataURL(file) {
   });
 }
 
+// 解析媒体资源DataURL。
 async function resolveMediaAssetDataURL(asset) {
   if (!asset?.file) return '';
   if (asset.dataUrl) return asset.dataUrl;
@@ -4702,6 +5734,7 @@ async function resolveMediaAssetDataURL(asset) {
   return asset.dataUrl;
 }
 
+// 准备图片元素源码。
 function prepareImageElementSource(img, src, fileName = '') {
   if (!img || !src) return;
   img.src = src;
@@ -4718,6 +5751,7 @@ function prepareImageElementSource(img, src, fileName = '') {
   }
 }
 
+// 准备视频元素源码。
 function prepareVideoElementSource(video, src) {
   if (!video || !src) return;
   video.removeAttribute('src');
@@ -4725,6 +5759,7 @@ function prepareVideoElementSource(video, src) {
   video.src = src;
 }
 
+// 处理内嵌媒体资源Into克隆。
 async function embedMediaAssetsIntoClone(clone) {
   const mediaNodes = clone.querySelectorAll('[data-editor-media-id]');
   for (const node of mediaNodes) {
@@ -4843,6 +5878,7 @@ $('#btnOpenFolder').addEventListener('click', async () => {
         await setCurrentFileContext({
           fileHandle: handle,
           fileName: handle.name,
+          fileRelativePath: handle.name,
           dirHandle: null,
           dirName: '',
         });
@@ -4876,6 +5912,7 @@ $('#fileInputHTML').addEventListener('change', async function () {
   await setCurrentFileContext({
     fileHandle: null,
     fileName: file.name,
+    fileRelativePath: file.name,
     dirHandle: null,
     dirName: '',
   });
@@ -4889,6 +5926,7 @@ $('#btnOverwrite').addEventListener('click', async () => {
   await overwriteFile();
 });
 
+// 处理overwrite文件。
 async function overwriteFile() {
   const html = await getExportHTML();
   if (state.currentFileHandle && state.currentFileHandle.createWritable) {
@@ -4951,6 +5989,7 @@ $('#btnExport').addEventListener('click', async () => {
   }
 });
 
+// 处理download文件。
 function downloadFile(filename, content) {
   const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -4965,6 +6004,7 @@ function downloadFile(filename, content) {
    Toast
    ============================================= */
 let toastTimer;
+// 显示提示。
 function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add('show');
@@ -5013,6 +6053,7 @@ window.addEventListener('beforeunload', () => {
 
 bootstrapApp();
 
+// 处理bootstrapApp。
 async function bootstrapApp() {
   restoreSidebarCollapsedState();
   renderFileSidebar();
