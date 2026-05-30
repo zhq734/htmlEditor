@@ -451,15 +451,23 @@ body {
   display: none;
   border-left: 1px solid var(--border);
   background: #1a1a1a;
+  transition: box-shadow 0.18s ease;
 }
 .editor-container.split .editor-pane--source { display: flex; flex-direction: column; }
 .editor-container.split .gutter { display: flex; }
+.editor-container.dragging-split .preview-iframe,
+.editor-container.dragging-split .source-area {
+  pointer-events: none;
+}
 .editor-container.edit-mode .editor-pane--preview { display: none; }
 .editor-container.edit-mode .editor-pane--source {
   display: flex; flex-direction: column;
   border-left: none;
 }
 .editor-container.edit-mode .gutter { display: none; }
+.editor-pane--source.source-pane--located {
+  box-shadow: inset 0 0 0 1px rgba(232,145,58,0.45);
+}
 
 /* =============================================
    Gutter (resizable divider)
@@ -472,6 +480,7 @@ body {
   flex-shrink: 0;
   transition: background var(--transition);
   position: relative;
+  touch-action: none;
 }
 .gutter:hover, .gutter.dragging { background: var(--accent); }
 .gutter::after {
@@ -523,8 +532,11 @@ body {
   outline: none;
   resize: none;
   tab-size: 2;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 
 /* =============================================
@@ -888,7 +900,7 @@ body {
         <span>&lt;/&gt; HTML 源码</span>
         <span style="font-size:10px;color:var(--muted)">实时同步</span>
       </div>
-      <textarea class="source-area" id="sourceArea" spellcheck="false"></textarea>
+      <textarea class="source-area" id="sourceArea" spellcheck="false" wrap="off"></textarea>
     </div>
   </div>
 </div>
@@ -1112,6 +1124,14 @@ const state = {
   localPreviewFileIndex: null,
   localPreviewFileIndexPromise: null,
   iframeRenderToken: 0,
+  splitRatio: 50,
+  gutterDragging: false,
+  gutterDragFrame: 0,
+  pendingSplitRatio: 50,
+  sourceSyncFrame: 0,
+  sourceSyncReason: '',
+  sourceNodeAnchors: [],
+  sourceLocateFlashTimer: 0,
 };
 
 /* =============================================
@@ -1187,6 +1207,7 @@ const BLOCK_BORDER_WIDTH_PRESETS = ['0', '1', '2', '4', '8'];
 const BLOCK_RADIUS_PRESETS = ['0', '4', '8', '12', '16'];
 const BLOCK_SPACING_PRESETS = ['0', '8', '12', '16', '24'];
 const BLOCK_TARGET_SELECTOR = 'h1,h2,h3,h4,p,div,li,td,th,blockquote,ne-p,ne-h1,ne-h2,ne-h3,ne-h4,ne-li,ne-blockquote,ne-td,ne-th';
+const SOURCE_ANCHOR_SELECTOR = `${BLOCK_TARGET_SELECTOR},img,video,pre,code,table,button,a,ne-card,.ne-card,.ne-code.ne-codeblock,.CodeMirror-code-name,.ne-codeblock-mode-name,.cm-content,.cm-line,.ne-image-wrap`;
 const URL_EDITABLE_DIV_MAX_CHILDREN = 10;
 const URL_EDITABLE_DIV_MAX_TEXT_LENGTH = 1200;
 const URL_EDITABLE_INLINE_MAX_TEXT_LENGTH = 800;
@@ -1381,7 +1402,7 @@ function initIframe(htmlContent) {
 
     // Sync to source if in split mode
     if (state.isSourceMode) {
-      sourceArea.value = getIframeHTML();
+      syncSourceView({ force: true, reason: 'iframe-load', preserveSelection: false });
     }
 
     if (state.recordHistoryOnLoad && !state.isApplyingHistory) {
@@ -1553,6 +1574,300 @@ function getIframeHTML() {
   return '<!DOCTYPE html>\n' + clone.outerHTML;
 }
 
+// 创建可定位的源码快照，并返回节点到源码偏移的映射。
+function createSourceSnapshotFromIframe() {
+  if (!state.iframeDoc) {
+    return { html: '', anchors: [] };
+  }
+
+  const anchorAttr = 'data-editor-source-anchor';
+  const anchors = [];
+
+  const clone = createIframeHTMLClone();
+  restorePreviewObjectUrlsInClone(clone);
+  const cloneBody = clone.querySelector('body');
+
+  clone.querySelectorAll(SOURCE_ANCHOR_SELECTOR).forEach(node => {
+    if (!node || !node.tagName) return;
+    if (node.hasAttribute(anchorAttr)) return;
+    node.setAttribute(anchorAttr, buildNodePathSignature(node, cloneBody));
+  });
+
+  let html = '<!DOCTYPE html>\n' + clone.outerHTML;
+  const markerPattern = new RegExp(`\\s${anchorAttr}="([^"]+)"`, 'g');
+  let removedLength = 0;
+  html = html.replace(markerPattern, (full, rawValue, offset) => {
+    anchors.push({
+      path: String(rawValue),
+      offset: offset - removedLength,
+    });
+    removedLength += full.length;
+    return '';
+  });
+
+  return { html, anchors };
+}
+
+// 应用分栏比例。
+function applySplitRatio(ratio) {
+  const safeRatio = Math.max(20, Math.min(80, Number(ratio) || 50));
+  state.splitRatio = safeRatio;
+  previewPane.style.flex = `${safeRatio}`;
+  sourcePane.style.flex = `${100 - safeRatio}`;
+}
+
+// 同步预览内容到源码面板。
+function syncSourceView(options = {}) {
+  const {
+    force = false,
+    reason = '',
+    preserveSelection = true,
+  } = options;
+
+  if (state.isEditMode || !state.isSourceMode || !state.iframeDoc) return;
+  if (state.sourceSyncFrame && !force) {
+    state.sourceSyncReason = reason || state.sourceSyncReason;
+    return;
+  }
+
+  const perform = () => {
+    state.sourceSyncFrame = 0;
+    const activeElement = document.activeElement;
+    const preserveSourceState = preserveSelection && activeElement === sourceArea;
+    const scrollTop = sourceArea.scrollTop;
+    const scrollLeft = sourceArea.scrollLeft;
+    const selectionStart = preserveSourceState ? sourceArea.selectionStart : 0;
+    const selectionEnd = preserveSourceState ? sourceArea.selectionEnd : 0;
+
+    const snapshot = createSourceSnapshotFromIframe();
+    sourceArea.value = snapshot.html;
+    state.sourceNodeAnchors = snapshot.anchors;
+
+    if (preserveSourceState) {
+      sourceArea.setSelectionRange(selectionStart, selectionEnd);
+    }
+    sourceArea.scrollTop = scrollTop;
+    sourceArea.scrollLeft = scrollLeft;
+  };
+
+  if (force) {
+    if (state.sourceSyncFrame) {
+      cancelAnimationFrame(state.sourceSyncFrame);
+      state.sourceSyncFrame = 0;
+    }
+    perform();
+    return;
+  }
+
+  state.sourceSyncReason = reason || state.sourceSyncReason;
+  state.sourceSyncFrame = requestAnimationFrame(perform);
+}
+
+// 构建节点在当前文档树中的稳定路径签名，减少重复标签导致的源码定位漂移。
+function buildNodePathSignature(node, root = state.iframeBody) {
+  if (!node || !root) return '';
+  const segments = [];
+  let current = node;
+
+  while (current && current !== root) {
+    const parent = current.parentElement;
+    if (!parent) break;
+    const siblings = Array.from(parent.children).filter(child => child.tagName === current.tagName);
+    const index = Math.max(0, siblings.indexOf(current));
+    segments.push(`${current.tagName.toLowerCase()}:${index}`);
+    current = parent;
+  }
+
+  return segments.reverse().join('/');
+}
+
+// 根据预览节点查找源码偏移。
+function findSourceOffsetForNode(node) {
+  if (!node || !state.iframeBody || !Array.isArray(state.sourceNodeAnchors) || !state.sourceNodeAnchors.length) {
+    return -1;
+  }
+
+  let current = node.nodeType === 3 ? node.parentElement : node;
+  while (current && current !== state.iframeBody) {
+    if (!current.tagName) {
+      current = current.parentElement;
+      continue;
+    }
+
+    const path = buildNodePathSignature(current);
+    const matchedAnchor = state.sourceNodeAnchors.find(item => item?.path === path);
+    if (matchedAnchor) {
+      return matchedAnchor.offset;
+    }
+
+    current = current.parentElement;
+  }
+
+  return -1;
+}
+
+// 归一化预览节点，避免命中仅预览态存在的包装层。
+function normalizePreviewNodeForSourceLocate(node) {
+  let current = node?.nodeType === 3 ? node.parentElement : node;
+  if (!current) return null;
+  if (isNonContentPreviewNode(current)) return null;
+
+  const wrapper = current.closest?.('.media-wrapper');
+  if (wrapper) {
+    const media = wrapper.querySelector('img, video');
+    if (media) return media;
+  }
+
+  const buttonLabel = current.closest?.('[data-editor-button-label]');
+  if (buttonLabel?.parentElement) {
+    return isNonContentPreviewNode(buttonLabel.parentElement) ? null : buttonLabel.parentElement;
+  }
+
+  const codeTitle = current.closest?.('[data-editor-local-code-title="true"], .CodeMirror-code-name, .ne-codeblock-mode-name');
+  if (codeTitle) {
+    return codeTitle;
+  }
+
+  const codeLine = current.closest?.('.cm-line');
+  if (codeLine) {
+    return codeLine;
+  }
+
+  const codeBlock = current.closest?.('.ne-code.ne-codeblock, .cm-content, ne-card[data-card-name="codeblock"], .ne-card[data-card-name="codeblock"]');
+  if (codeBlock) {
+    return codeBlock.closest?.('.ne-code.ne-codeblock, ne-card[data-card-name="codeblock"], .ne-card[data-card-name="codeblock"]') || codeBlock;
+  }
+
+  const imageCard = current.closest?.('.ne-image-wrap, [data-testid="ne-card-image"], ne-card[data-card-name="image"], .ne-card[data-card-name="image"]');
+  if (imageCard) {
+    return imageCard.closest?.('ne-card[data-card-name="image"], .ne-card[data-card-name="image"]') || imageCard;
+  }
+
+  const anchorCandidate = current.closest?.(BLOCK_TARGET_SELECTOR) || current.closest?.(SOURCE_ANCHOR_SELECTOR);
+  if (anchorCandidate) {
+    return refinePreviewAnchorCandidate(anchorCandidate, current);
+  }
+
+  return refinePreviewAnchorCandidate(current, current);
+}
+
+// 将过大的预览容器收敛到更具体的可定位块节点。
+function refinePreviewAnchorCandidate(candidate, origin) {
+  if (!candidate || !candidate.tagName) return candidate || null;
+
+  if (!shouldRefinePreviewAnchorCandidate(candidate)) {
+    return candidate;
+  }
+
+  const narrowed = findBestDescendantAnchorCandidate(candidate, origin);
+  return narrowed || candidate;
+}
+
+// 判断当前节点是否属于需要继续下钻的大容器。
+function shouldRefinePreviewAnchorCandidate(node) {
+  if (!node || !node.tagName) return false;
+  const tagName = node.tagName.toLowerCase();
+  if (tagName !== 'div') return false;
+  const text = String(node.textContent || '').replace(/\s+/g, '');
+  return text.length > 24 || node.children.length > 1;
+}
+
+// 判断节点是否属于阅读器壳层、目录、评论、工具栏等非正文区域。
+function isNonContentPreviewNode(node) {
+  if (!node || !node.tagName) return true;
+  const className = String(node.className || '');
+  const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+  const nonContentPattern = /(header|toolbar|comment|catalog|toc|aside|nav|menu|sidebar)/i;
+  if (nonContentPattern.test(className)) return true;
+  if (/^(nav|aside)$/i.test(node.tagName)) return true;
+  if (node.closest?.('[class*=header], [class*=toolbar], [class*=comment], [class*=catalog], [class*=toc], [class*=aside], nav, aside')) return true;
+  if (text && /^(分享编辑|返回文档|全部评论|目录)/.test(text)) return true;
+  return false;
+}
+
+// 计算节点深度，用于更偏向更具体的后代块。
+function getPreviewNodeDepth(node) {
+  let depth = 0;
+  let current = node;
+  while (current?.parentElement) {
+    depth += 1;
+    current = current.parentElement;
+  }
+  return depth;
+}
+
+// 按深度和面积收敛定位目标。
+function sortPreviewAnchorCandidates(a, b, origin) {
+  const containmentScoreA = (a === origin || a.contains(origin)) ? 0 : 1;
+  const containmentScoreB = (b === origin || b.contains(origin)) ? 0 : 1;
+  if (containmentScoreA !== containmentScoreB) return containmentScoreA - containmentScoreB;
+
+  const depthA = getPreviewNodeDepth(a);
+  const depthB = getPreviewNodeDepth(b);
+  if (depthA !== depthB) return depthB - depthA;
+
+  const rectA = a.getBoundingClientRect();
+  const rectB = b.getBoundingClientRect();
+  return (rectA.width * rectA.height) - (rectB.width * rectB.height);
+}
+
+// 选择最贴近当前点击位置的正文锚点。
+function findBestDescendantAnchorCandidate(root, origin) {
+  const candidates = Array.from(root.querySelectorAll(SOURCE_ANCHOR_SELECTOR));
+  const filtered = candidates.filter(node => {
+    if (!node || node === root || !node.tagName) return false;
+    if (isNonContentPreviewNode(node)) return false;
+    if (!(origin === node || node.contains(origin) || origin.contains?.(node))) return false;
+    if (node.tagName.toLowerCase() === 'div' && shouldRefinePreviewAnchorCandidate(node)) return false;
+    const rect = node.getBoundingClientRect?.();
+    if (!rect || rect.width < 8 || rect.height < 8) return false;
+    const text = String(node.textContent || '').replace(/\s+/g, '');
+    return text.length > 0 || /^(img|video|table)$/i.test(node.tagName);
+  });
+
+  if (!filtered.length) return null;
+  filtered.sort((a, b) => sortPreviewAnchorCandidates(a, b, origin));
+  return filtered[0];
+}
+
+// 将源码面板定位到指定偏移。
+function revealSourceOffset(offset) {
+  if (!state.isSourceMode || state.isEditMode) return;
+  const safeOffset = Math.max(0, Math.min(sourceArea.value.length, Number(offset) || 0));
+  if (document.activeElement === sourceArea) {
+    sourceArea.focus({ preventScroll: true });
+  }
+  sourceArea.setSelectionRange(safeOffset, safeOffset);
+
+  const beforeText = sourceArea.value.slice(0, safeOffset);
+  const lineIndex = beforeText.split('\n').length - 1;
+  const computed = window.getComputedStyle(sourceArea);
+  const lineHeight = parseFloat(computed.lineHeight) || 21;
+  const paddingTop = parseFloat(computed.paddingTop) || 0;
+  const targetTop = Math.max(0, (lineIndex * lineHeight) - (sourceArea.clientHeight * 0.35) + paddingTop);
+  sourceArea.scrollTop = targetTop;
+
+  sourcePane.classList.add('source-pane--located');
+  clearTimeout(state.sourceLocateFlashTimer);
+  state.sourceLocateFlashTimer = window.setTimeout(() => {
+    sourcePane.classList.remove('source-pane--located');
+  }, 600);
+}
+
+// 从预览节点同步定位到源码。
+function locateSourceFromPreviewNode(node) {
+  if (!state.isSourceMode || state.isEditMode) return;
+  const normalizedNode = normalizePreviewNodeForSourceLocate(node);
+  if (!normalizedNode || isNonContentPreviewNode(normalizedNode)) return;
+  if (state.sourceSyncFrame || !Array.isArray(state.sourceNodeAnchors) || !state.sourceNodeAnchors.length) {
+    syncSourceView({ force: true, reason: 'locate-from-preview', preserveSelection: true });
+  }
+  const offset = findSourceOffsetForNode(normalizedNode);
+  if (offset >= 0) {
+    revealSourceOffset(offset);
+  }
+}
+
 // 创建iframeHTMLClone。
 function createIframeHTMLClone() {
   return sanitizeDocumentClone(state.iframeDoc.documentElement.cloneNode(true));
@@ -1604,11 +1919,12 @@ function isElementNode(node) {
 // 清洗文档克隆。
 function sanitizeDocumentClone(clone) {
   // Remove editor-injected elements
-  const toRemove = clone.querySelectorAll('#__editor_styles__, #editor-local-snapshot-preview-style, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn, .selected-block');
+  const toRemove = clone.querySelectorAll('#__editor_styles__, #editor-local-snapshot-preview-style, .media-wrapper .resize-handle, .media-wrapper .media-replace-btn');
   toRemove.forEach(el => el.remove());
 
   // Remove editor classes
   clone.querySelectorAll('.selected-media').forEach(el => el.classList.remove('selected-media'));
+  clone.querySelectorAll('.selected-block').forEach(el => el.classList.remove('selected-block'));
   clone.classList.remove('editor-local-snapshot-mode');
   clone.querySelectorAll('html.editor-local-snapshot-mode, body.editor-local-snapshot-mode').forEach(el => {
     el.classList.remove('editor-local-snapshot-mode');
@@ -1914,8 +2230,101 @@ async function readLocalResourceFile(relativePath) {
   }
 }
 
+// 判断本地资源是否为 HTML 文档。
+function isLocalHtmlResource(relativePath, file) {
+  const normalized = normalizeFolderRelativePath(relativePath).toLowerCase();
+  if (/\.(?:html?|xhtml)$/i.test(normalized)) return true;
+  return /\bhtml\b/i.test(String(file?.type || ''));
+}
+
+// 重写文档里的本地资源引用，供预览态使用。
+async function rewriteLocalDocumentResources(doc, fromPath, renderToken) {
+  if (!doc) return doc;
+
+  const styleAttrNodes = Array.from(doc.querySelectorAll('[style]'));
+  for (const node of styleAttrNodes) {
+    if (renderToken !== state.iframeRenderToken) return doc;
+    const originalStyle = node.getAttribute('style') || '';
+    const rewrittenStyle = await rewriteLocalCssText(originalStyle, fromPath, renderToken);
+    if (rewrittenStyle && rewrittenStyle !== originalStyle) {
+      markPreviewResourceNode(node, 'style', originalStyle, rewrittenStyle);
+    }
+  }
+
+  const srcsetNodes = Array.from(doc.querySelectorAll('[srcset]'));
+  for (const node of srcsetNodes) {
+    if (renderToken !== state.iframeRenderToken) return doc;
+    const originalSrcset = node.getAttribute('srcset') || '';
+    const rewrittenSrcset = await rewriteLocalSrcsetAttribute(originalSrcset, fromPath, renderToken);
+    if (rewrittenSrcset && rewrittenSrcset !== originalSrcset) {
+      markPreviewResourceNode(node, 'srcset', originalSrcset, rewrittenSrcset);
+    }
+  }
+
+  const styleNodes = Array.from(doc.querySelectorAll('style'));
+  for (const styleNode of styleNodes) {
+    if (renderToken !== state.iframeRenderToken) return doc;
+    const originalText = styleNode.textContent || '';
+    const rewrittenText = await rewriteLocalCssText(originalText, fromPath, renderToken);
+    if (rewrittenText && rewrittenText !== originalText) {
+      styleNode.textContent = rewrittenText;
+      styleNode.setAttribute('data-editor-preview-style-text', originalText);
+    }
+  }
+
+  const hrefNodes = Array.from(doc.querySelectorAll('[href]'));
+  for (const link of hrefNodes) {
+    if (renderToken !== state.iframeRenderToken) return doc;
+    const href = link.getAttribute('href') || '';
+    const relativePath = await resolvePreviewResourcePath(fromPath, href);
+    if (!relativePath) continue;
+    const isStylesheetLink = link.tagName === 'LINK' && /\bstylesheet\b/i.test(link.getAttribute('rel') || '');
+    const blobUrl = isStylesheetLink
+      ? await readLocalStylesheetBlobUrl(relativePath, renderToken)
+      : await readLocalResourceBlobUrl(relativePath, renderToken);
+    if (!blobUrl) continue;
+    markPreviewResourceNode(link, 'href', href, blobUrl);
+  }
+
+  const assetNodes = Array.from(doc.querySelectorAll('[src], [poster]'));
+  for (const node of assetNodes) {
+    if (renderToken !== state.iframeRenderToken) return doc;
+    for (const attrName of ['src', 'poster']) {
+      const originalValue = node.getAttribute(attrName) || '';
+      const relativePath = await resolvePreviewResourcePath(fromPath, originalValue);
+      if (!relativePath) continue;
+      const blobUrl = await readLocalResourceBlobUrl(relativePath, renderToken);
+      if (!blobUrl) continue;
+      markPreviewResourceNode(node, attrName, originalValue, blobUrl);
+    }
+  }
+
+  return doc;
+}
+
+// 读取本地 HTML 资源并递归重写其相对依赖，避免嵌套 iframe 在 blob 基址下丢失脚本和样式。
+async function readLocalHtmlResourceBlobUrl(relativePath, renderToken) {
+  const normalized = normalizeFolderRelativePath(relativePath);
+  if (!normalized) return '';
+  if (state.localPreviewUrlCache[normalized]) {
+    return state.localPreviewUrlCache[normalized];
+  }
+
+  const file = await readLocalResourceFile(normalized);
+  if (!file) return '';
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(await file.text(), 'text/html');
+  await rewriteLocalDocumentResources(doc, normalized, renderToken);
+  if (renderToken !== state.iframeRenderToken) return '';
+
+  const htmlText = '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  const blobUrl = trackLocalPreviewObjectUrl(URL.createObjectURL(new Blob([htmlText], { type: 'text/html' })));
+  state.localPreviewUrlCache[normalized] = blobUrl;
+  return blobUrl;
+}
+
 // 读取本地资源BlobURL。
-async function readLocalResourceBlobUrl(relativePath) {
+async function readLocalResourceBlobUrl(relativePath, renderToken = state.iframeRenderToken) {
   const normalized = normalizeFolderRelativePath(relativePath);
   if (!normalized) return '';
   if (state.localPreviewUrlCache[normalized]) {
@@ -1923,6 +2332,9 @@ async function readLocalResourceBlobUrl(relativePath) {
   }
   const file = await readLocalResourceFile(normalized);
   if (!file) return '';
+  if (isLocalHtmlResource(normalized, file)) {
+    return readLocalHtmlResourceBlobUrl(normalized, renderToken);
+  }
   const blobUrl = trackLocalPreviewObjectUrl(URL.createObjectURL(file));
   state.localPreviewUrlCache[normalized] = blobUrl;
   return blobUrl;
@@ -1960,7 +2372,7 @@ async function rewriteLocalCssText(cssText, fromPath, renderToken, cssStack = ne
     const rawUrl = String(match[2] || '').trim();
     const relativePath = await resolvePreviewResourcePath(fromPath, rawUrl);
     if (!relativePath) return match[0];
-    const blobUrl = await readLocalResourceBlobUrl(relativePath);
+    const blobUrl = await readLocalResourceBlobUrl(relativePath, renderToken);
     return blobUrl ? `url("${blobUrl}")` : match[0];
   });
 
@@ -2025,7 +2437,7 @@ async function rewriteLocalSrcsetAttribute(srcset, fromPath, renderToken) {
       rewritten.push(segment);
       continue;
     }
-    const blobUrl = await readLocalResourceBlobUrl(relativePath);
+    const blobUrl = await readLocalResourceBlobUrl(relativePath, renderToken);
     rewritten.push(blobUrl ? [blobUrl, ...bits.slice(1)].join(' ').trim() : segment);
   }
 
@@ -2128,64 +2540,8 @@ async function prepareIframeContent(htmlContent, renderToken) {
       });
     });
   }
-
-  const styleAttrNodes = Array.from(doc.querySelectorAll('[style]'));
-  for (const node of styleAttrNodes) {
-    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
-    const originalStyle = node.getAttribute('style') || '';
-    const rewrittenStyle = await rewriteLocalCssText(originalStyle, state.currentFileRelativePath, renderToken);
-    if (rewrittenStyle && rewrittenStyle !== originalStyle) {
-      markPreviewResourceNode(node, 'style', originalStyle, rewrittenStyle);
-    }
-  }
-
-  const srcsetNodes = Array.from(doc.querySelectorAll('[srcset]'));
-  for (const node of srcsetNodes) {
-    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
-    const originalSrcset = node.getAttribute('srcset') || '';
-    const rewrittenSrcset = await rewriteLocalSrcsetAttribute(originalSrcset, state.currentFileRelativePath, renderToken);
-    if (rewrittenSrcset && rewrittenSrcset !== originalSrcset) {
-      markPreviewResourceNode(node, 'srcset', originalSrcset, rewrittenSrcset);
-    }
-  }
-
-  const styleNodes = Array.from(doc.querySelectorAll('style'));
-  for (const styleNode of styleNodes) {
-    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
-    const originalText = styleNode.textContent || '';
-    const rewrittenText = await rewriteLocalCssText(originalText, state.currentFileRelativePath, renderToken);
-    if (rewrittenText && rewrittenText !== originalText) {
-      styleNode.textContent = rewrittenText;
-      styleNode.setAttribute('data-editor-preview-style-text', originalText);
-    }
-  }
-
-  const hrefNodes = Array.from(doc.querySelectorAll('[href]'));
-  for (const link of hrefNodes) {
-    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
-    const href = link.getAttribute('href') || '';
-    const relativePath = await resolvePreviewResourcePath(state.currentFileRelativePath, href);
-    if (!relativePath) continue;
-    const isStylesheetLink = link.tagName === 'LINK' && /\bstylesheet\b/i.test(link.getAttribute('rel') || '');
-    const blobUrl = isStylesheetLink
-      ? await readLocalStylesheetBlobUrl(relativePath, renderToken)
-      : await readLocalResourceBlobUrl(relativePath);
-    if (!blobUrl) continue;
-    markPreviewResourceNode(link, 'href', href, blobUrl);
-  }
-
-  const assetNodes = Array.from(doc.querySelectorAll('[src], [poster]'));
-  for (const node of assetNodes) {
-    if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
-    for (const attrName of ['src', 'poster']) {
-      const originalValue = node.getAttribute(attrName) || '';
-      const relativePath = await resolvePreviewResourcePath(state.currentFileRelativePath, originalValue);
-      if (!relativePath) continue;
-      const blobUrl = await readLocalResourceBlobUrl(relativePath);
-      if (!blobUrl) continue;
-      markPreviewResourceNode(node, attrName, originalValue, blobUrl);
-    }
-  }
+  await rewriteLocalDocumentResources(doc, state.currentFileRelativePath, renderToken);
+  if (renderToken !== state.iframeRenderToken) return htmlContent || defaultHTML;
 
   return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
 }
@@ -2224,6 +2580,10 @@ function bindIframeEvents() {
   body.addEventListener('mousedown', (e) => {
     state.selectionPointerDown = true;
     hideToolbarUI(false);
+
+    if (state.isSourceMode && !state.isEditMode) {
+      locateSourceFromPreviewNode(e.target);
+    }
 
     if (!usesScopedEditingMode()) return;
 
@@ -2334,7 +2694,7 @@ function bindIframeEvents() {
   // Input event → sync source
   body.addEventListener('input', function() {
     if (state.isSourceMode && !state.isEditMode) {
-      sourceArea.value = getIframeHTML();
+      syncSourceView({ reason: 'iframe-input' });
     }
     scheduleSnapshotPersist();
     recordHistorySnapshot();
@@ -2441,7 +2801,7 @@ function setupIframeObserver() {
     unlockDisabledButtonsForEditing();
     protectMediaElements(usesScopedEditingMode() ? getEditableHost() : state.iframeBody);
     if (state.isSourceMode && !state.isEditMode) {
-      sourceArea.value = getIframeHTML();
+      syncSourceView({ reason: 'iframe-mutation' });
     }
     scheduleSnapshotPersist();
     recordHistorySnapshot();
@@ -2465,7 +2825,11 @@ function switchMode(mode) {
   if (mode === 'edit') {
     // Save current iframe content to source
     if (!state.isEditMode) {
-      sourceArea.value = getIframeHTML();
+      if (state.isSourceMode) {
+        syncSourceView({ force: true, reason: 'switch-edit', preserveSelection: false });
+      } else {
+        sourceArea.value = getIframeHTML();
+      }
       recordHistorySnapshot({ immediate: true });
       state.isEditMode = true;
       state.iframeReady = false;
@@ -2498,7 +2862,7 @@ $('#btnSource').addEventListener('click', () => {
   state.isSourceMode = !state.isSourceMode;
 
   if (state.isSourceMode) {
-    sourceArea.value = getIframeHTML();
+    syncSourceView({ force: true, reason: 'toggle-source-on', preserveSelection: false });
     applyEditorLayoutFromState(sourceArea.value);
     showToast('源码分栏已开启');
   } else {
@@ -2619,13 +2983,14 @@ function captureCurrentFileSession(options = {}) {
   const { schedulePersist: shouldSchedulePersist = true } = options;
   if (!state.currentDirHandle || state.currentSourceType !== 'local' || !state.activeFolderFileKey) return;
   const currentHtml = getPersistableEditorHTML();
-  if (!currentHtml) return;
+  const resolvedHtml = resolvePreferredLocalSnapshotHtml(currentHtml, state.currentFileBaseHtml || '').html;
+  if (!resolvedHtml) return;
 
   state.folderFileSessions[state.activeFolderFileKey] = {
     key: state.activeFolderFileKey,
     fileName: state.currentFileName || '',
     relativePath: state.currentFileRelativePath || '',
-    html: currentHtml,
+    html: resolvedHtml,
     baseHtml: state.currentFileBaseHtml || '',
     history: [...state.history],
     historyIndex: state.historyIndex,
@@ -2832,8 +3197,7 @@ function applyEditorLayoutFromState(currentHtml = '') {
   if (state.isSourceMode) {
     sourcePane.style.display = '';
     gutter.style.display = 'flex';
-    sourcePane.style.flex = '1';
-    previewPane.style.flex = '1';
+    applySplitRatio(state.splitRatio);
     editorContainer.classList.add('split');
   } else {
     sourcePane.style.display = 'none';
@@ -2873,19 +3237,20 @@ function readPersistedFileMeta() {
 
 // 持久化HTML快照。
 function persistHtmlSnapshot(html = getPersistableEditorHTML()) {
-  if (!html) return;
+  const normalizedHtml = resolvePreferredLocalSnapshotHtml(html, state.currentFileBaseHtml || '').html;
+  if (!normalizedHtml) return;
 
-  if (!shouldPersistHtmlSnapshot(html)) {
+  if (!shouldPersistHtmlSnapshot(normalizedHtml)) {
     clearPersistedHtmlSnapshot();
     return;
   }
 
-  let shouldPersistToIndexedDb = html.length > MAX_PERSISTED_SNAPSHOT_LENGTH
-    || hasHeavyEmbeddedMediaData(html);
+  let shouldPersistToIndexedDb = normalizedHtml.length > MAX_PERSISTED_SNAPSHOT_LENGTH
+    || hasHeavyEmbeddedMediaData(normalizedHtml);
   let persistedOutsideIndexedDb = false;
 
   try {
-    sessionStorage.setItem(STORAGE_KEYS.lastHtmlSessionSnapshot, html);
+    sessionStorage.setItem(STORAGE_KEYS.lastHtmlSessionSnapshot, normalizedHtml);
     persistedOutsideIndexedDb = true;
   } catch (err) {
     console.warn('保存会话内容快照失败', err);
@@ -2893,8 +3258,8 @@ function persistHtmlSnapshot(html = getPersistableEditorHTML()) {
   }
 
   try {
-    if (html.length <= MAX_PERSISTED_SNAPSHOT_LENGTH) {
-      localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, html);
+    if (normalizedHtml.length <= MAX_PERSISTED_SNAPSHOT_LENGTH) {
+      localStorage.setItem(STORAGE_KEYS.lastHtmlSnapshot, normalizedHtml);
       persistedOutsideIndexedDb = true;
     } else {
       localStorage.removeItem(STORAGE_KEYS.lastHtmlSnapshot);
@@ -2905,7 +3270,7 @@ function persistHtmlSnapshot(html = getPersistableEditorHTML()) {
   }
 
   if (shouldPersistToIndexedDb || !persistedOutsideIndexedDb) {
-    void setStoredSnapshot(SNAPSHOT_LAST_HTML_KEY, html).catch(err => {
+    void setStoredSnapshot(SNAPSHOT_LAST_HTML_KEY, normalizedHtml).catch(err => {
       console.warn('保存 IndexedDB 内容快照失败', err);
     });
     return;
@@ -3175,6 +3540,72 @@ function normalizeEmbeddedArticleTitle(title, fallbackTitle = '') {
   const value = String(title || fallbackTitle || '').trim();
   const normalized = value.replace(/\s*-\s*(?:今日头条|头条|懂车帝|西瓜视频)\s*$/i, '').trim();
   return normalized || '文章内容';
+}
+
+// 计算压缩空白后的文本长度，便于判断本地快照正文是否完整。
+function getCompactTextLength(text) {
+  return String(text || '').replace(/\s+/g, '').length;
+}
+
+// 分析语雀本地快照正文的完整性，识别“主正文被截空，只剩评论引用”的坏会话。
+function analyzeYuqueLocalSnapshotHtml(html) {
+  const source = String(html || '');
+  if (!source
+    || !/article[^>]+id=["']content["']/i.test(source)
+    || !/data-df=["']lake["']/i.test(source)) {
+    return {
+      relevant: false,
+      complete: false,
+      mainTextLength: 0,
+      maxBodyTextLength: 0,
+      hasAlternativeBodyContent: false,
+    };
+  }
+
+  const doc = new DOMParser().parseFromString(source, 'text/html');
+  const mainRoot = doc.querySelector('article#content .yuque-doc-content[data-df="lake"]');
+  const mainBody = mainRoot?.querySelector('.ne-viewer-body');
+  const mainTextLength = getCompactTextLength(mainBody?.textContent || '');
+  const maxBodyTextLength = Array.from(doc.querySelectorAll('.yuque-doc-content[data-df="lake"] .ne-viewer-body'))
+    .reduce((max, node) => Math.max(max, getCompactTextLength(node.textContent || '')), 0);
+
+  return {
+    relevant: true,
+    complete: mainTextLength >= 120,
+    mainTextLength,
+    maxBodyTextLength,
+    hasAlternativeBodyContent: maxBodyTextLength >= 120 && maxBodyTextLength > (mainTextLength + 40),
+  };
+}
+
+// 对本地快照优先选择正文完整的版本，避免刷新后恢复到被截断的坏会话。
+function resolvePreferredLocalSnapshotHtml(primaryHtml, fallbackHtml) {
+  const primary = String(primaryHtml || '');
+  const fallback = String(fallbackHtml || '');
+  if (!primary || !fallback || primary === fallback) {
+    return {
+      html: primary || fallback,
+      usedFallback: false,
+    };
+  }
+
+  const primaryInfo = analyzeYuqueLocalSnapshotHtml(primary);
+  if (!primaryInfo.relevant || primaryInfo.complete) {
+    return {
+      html: primary,
+      usedFallback: false,
+    };
+  }
+
+  const fallbackInfo = analyzeYuqueLocalSnapshotHtml(fallback);
+  const shouldFallback = fallbackInfo.relevant
+    && fallbackInfo.complete
+    && (primaryInfo.hasAlternativeBodyContent || primaryInfo.mainTextLength === 0);
+
+  return {
+    html: shouldFallback ? fallback : primary,
+    usedFallback: shouldFallback,
+  };
 }
 
 // 从嵌入式 JSON 中提取正文和元信息候选值。
@@ -4340,6 +4771,11 @@ btnRedo.addEventListener('click', () => {
 // 加载编辑器内容。
 function loadEditorContent(html, options = {}) {
   const { resetMediaAssets = true } = options;
+  if (state.sourceSyncFrame) {
+    cancelAnimationFrame(state.sourceSyncFrame);
+    state.sourceSyncFrame = 0;
+  }
+  state.sourceNodeAnchors = [];
   if (resetMediaAssets) {
     clearMediaAssetStore();
   }
@@ -4690,6 +5126,15 @@ async function activateFolderFile(fileKey, options = {}) {
     state.folderFileSessions[fileKey] = session;
   }
 
+  const preferredSnapshot = resolvePreferredLocalSnapshotHtml(nextHtml, nextBaseHtml);
+  if (preferredSnapshot.usedFallback) {
+    nextHtml = preferredSnapshot.html;
+    session.html = nextHtml;
+    session.history = [];
+    session.historyIndex = -1;
+    session.updatedAt = Date.now();
+  }
+
   resetEditorSessionState();
   applyFileSessionState(session);
   state.activeFolderFileKey = fileKey;
@@ -4842,14 +5287,22 @@ async function restoreLastSession() {
         showToastMessage: false,
       });
       if (opened) {
-        if (persistedSnapshot && shouldPersistHtmlSnapshot(persistedSnapshot) && preferredFileKey === state.activeFolderFileKey) {
+        const activeSession = getFolderFileSession(state.activeFolderFileKey);
+        const preferredSnapshot = resolvePreferredLocalSnapshotHtml(
+          persistedSnapshot,
+          activeSession?.baseHtml || state.currentFileBaseHtml || ''
+        );
+        if (persistedSnapshot && preferredSnapshot.usedFallback) {
+          clearPersistedHtmlSnapshot();
+        }
+        if (preferredSnapshot.html && !preferredSnapshot.usedFallback && shouldPersistHtmlSnapshot(preferredSnapshot.html) && preferredFileKey === state.activeFolderFileKey) {
           const session = getFolderFileSession(preferredFileKey);
           if (session) {
-            session.html = persistedSnapshot;
-            session.preserveLocalInteractions = hasInteractiveLocalContent(persistedSnapshot);
+            session.html = preferredSnapshot.html;
+            session.preserveLocalInteractions = hasInteractiveLocalContent(preferredSnapshot.html);
           }
-          loadEditorContent(persistedSnapshot, { resetMediaAssets: false });
-          applyEditorLayoutFromState(persistedSnapshot);
+          loadEditorContent(preferredSnapshot.html, { resetMediaAssets: false });
+          applyEditorLayoutFromState(preferredSnapshot.html);
           renderFileSidebar();
           scheduleFolderSessionPersist();
         }
@@ -4906,31 +5359,46 @@ async function restoreLastSession() {
 /* =============================================
    Gutter Resize
    ============================================= */
-let gutterDragging = false;
+function stopGutterDrag() {
+  state.selectionPointerDown = false;
+  if (!state.gutterDragging) return;
+  applySplitRatio(state.pendingSplitRatio);
+  state.gutterDragging = false;
+  gutter.classList.remove('dragging');
+  editorContainer.classList.remove('dragging-split');
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  if (state.gutterDragFrame) {
+    cancelAnimationFrame(state.gutterDragFrame);
+    state.gutterDragFrame = 0;
+  }
+}
+
 gutter.addEventListener('mousedown', (e) => {
   e.preventDefault();
-  gutterDragging = true;
+  state.gutterDragging = true;
+  state.pendingSplitRatio = state.splitRatio;
   gutter.classList.add('dragging');
+  editorContainer.classList.add('dragging-split');
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
 });
 
 document.addEventListener('mousemove', (e) => {
-  if (!gutterDragging) return;
+  if (!state.gutterDragging) return;
   const rect = editorContainer.getBoundingClientRect();
+  if (!rect.width) return;
   const x = e.clientX - rect.left;
-  const pct = Math.max(20, Math.min(80, (x / rect.width) * 100));
-  previewPane.style.flex = `${pct}`;
-  sourcePane.style.flex = `${100 - pct}`;
+  state.pendingSplitRatio = Math.max(20, Math.min(80, (x / rect.width) * 100));
+  if (state.gutterDragFrame) return;
+  state.gutterDragFrame = requestAnimationFrame(() => {
+    state.gutterDragFrame = 0;
+    applySplitRatio(state.pendingSplitRatio);
+  });
 });
 
 document.addEventListener('mouseup', () => {
-  state.selectionPointerDown = false;
-  if (!gutterDragging) return;
-  gutterDragging = false;
-  gutter.classList.remove('dragging');
-  document.body.style.cursor = '';
-  document.body.style.userSelect = '';
+  stopGutterDrag();
 });
 
 /* =============================================
