@@ -930,7 +930,7 @@ body {
   <div class="floating-toolbar__group" style="position:relative">
     <button class="tb-btn tb-btn--wide" id="tbBlockStyleToggle" title="块样式">块样式</button>
     <div class="tb-block-panel" id="tbBlockPanel">
-      <div class="tb-block-panel__row tb-block-panel__row--double">
+      <div class="tb-block-panel__row tb-block-panel__row--triple">
         <span class="tb-block-panel__label">边框</span>
         <select class="tb-select tb-select--compact" id="tbBorderStyle" title="边框样式">
           <option value="none">无</option>
@@ -945,6 +945,7 @@ body {
           <option value="4">4px</option>
           <option value="8">8px</option>
         </select>
+        <input type="color" class="tb-color" id="tbBorderColor" value="#111111" title="边框颜色" />
       </div>
       <div class="tb-block-panel__row tb-block-panel__row--compact">
         <span class="tb-block-panel__label">背景</span>
@@ -1081,6 +1082,8 @@ const state = {
   toolbarInteracting: false,
   toolbarUpdateQueued: false,
   selectedBlock: null,
+  blockStyleTarget: null,
+  blockStyleDraft: null,
   selectionPointerDown: false,
   activeEditableBlock: null,
   transientMutationPauseDepth: 0,
@@ -1156,6 +1159,7 @@ const tbBlockStyleToggle = $('#tbBlockStyleToggle');
 const tbBlockPanel = $('#tbBlockPanel');
 const tbBorderStyle = $('#tbBorderStyle');
 const tbBorderWidth = $('#tbBorderWidth');
+const tbBorderColor = $('#tbBorderColor');
 const tbBackgroundColor = $('#tbBackgroundColor');
 const tbClearBackgroundColor = $('#tbClearBackgroundColor');
 const tbBorderRadius = $('#tbBorderRadius');
@@ -1182,7 +1186,7 @@ const MAX_RECENT_COLORS = 5;
 const BLOCK_BORDER_WIDTH_PRESETS = ['0', '1', '2', '4', '8'];
 const BLOCK_RADIUS_PRESETS = ['0', '4', '8', '12', '16'];
 const BLOCK_SPACING_PRESETS = ['0', '8', '12', '16', '24'];
-const BLOCK_TARGET_SELECTOR = 'h1,h2,h3,h4,p,div,li,td,th,blockquote';
+const BLOCK_TARGET_SELECTOR = 'h1,h2,h3,h4,p,div,li,td,th,blockquote,ne-p,ne-h1,ne-h2,ne-h3,ne-h4,ne-li,ne-blockquote,ne-td,ne-th';
 const URL_EDITABLE_DIV_MAX_CHILDREN = 10;
 const URL_EDITABLE_DIV_MAX_TEXT_LENGTH = 1200;
 const URL_EDITABLE_INLINE_MAX_TEXT_LENGTH = 800;
@@ -3863,6 +3867,8 @@ function hideToolbarUI(resetControls = true) {
 function clearSelectionState() {
   state.savedTextRange = null;
   state.toolbarInteracting = false;
+  state.blockStyleTarget = null;
+  state.blockStyleDraft = null;
 
   try {
     if (state.iframeDoc) {
@@ -5114,14 +5120,31 @@ function getBlockStyleTarget(range = null) {
   const activeRange = range || state.savedTextRange || (
     state.iframeDoc.getSelection().rangeCount > 0 ? state.iframeDoc.getSelection().getRangeAt(0) : null
   );
-  if (!activeRange) return null;
+  if (!activeRange) {
+    if (state.blockStyleTarget && state.iframeBody.contains(state.blockStyleTarget)) {
+      return state.blockStyleTarget;
+    }
+    return null;
+  }
 
   let node = activeRange.commonAncestorContainer;
   if (node.nodeType === 3) node = node.parentElement;
-  if (!node) return null;
+  if (!node) {
+    if (state.blockStyleTarget && state.iframeBody.contains(state.blockStyleTarget)) {
+      return state.blockStyleTarget;
+    }
+    return null;
+  }
 
   const target = node.closest(BLOCK_TARGET_SELECTOR);
-  if (!target || target === state.iframeBody) return null;
+  if (!target || target === state.iframeBody) {
+    if (state.blockStyleTarget && state.iframeBody.contains(state.blockStyleTarget)) {
+      return state.blockStyleTarget;
+    }
+    return null;
+  }
+
+  state.blockStyleTarget = target;
   return target;
 }
 
@@ -5146,6 +5169,18 @@ function parseBlockBorderStyle(node) {
   if (!state.iframeDoc || !node) return 'none';
   const style = state.iframeDoc.defaultView.getComputedStyle(node).borderTopStyle;
   return style && style !== 'hidden' ? style : 'none';
+}
+
+// 解析块边框颜色。
+function parseBlockBorderColor(node) {
+  if (!state.iframeDoc || !node) return '#111111';
+  const computed = state.iframeDoc.defaultView.getComputedStyle(node);
+  const style = computed.borderTopStyle;
+  const width = parsePixelValue(computed.borderTopWidth);
+  if (!style || style === 'none' || !width || width === '0') {
+    return '#111111';
+  }
+  return normalizeHexColor(computed.borderTopColor) || '#111111';
 }
 
 // 解析块背景颜色。
@@ -5191,6 +5226,37 @@ function updateBlockStyleAvailability(range) {
   return target;
 }
 
+// 构造块样式草稿。
+function buildBlockStyleDraft(target) {
+  if (!target) return null;
+  const borderStyle = parseBlockBorderStyle(target);
+  const borderWidth = parseBlockBorderWidth(target);
+  const borderColor = parseBlockBorderColor(target);
+  const backgroundColor = parseBlockBackgroundColor(target);
+  const borderRadius = parseBlockRadius(target);
+  const padding = parseBlockPadding(target);
+  const margin = parseBlockMargin(target);
+
+  return {
+    borderStyle: ['none', 'solid', 'dashed', 'dotted'].includes(borderStyle) ? borderStyle : 'solid',
+    borderWidth: BLOCK_BORDER_WIDTH_PRESETS.includes(borderWidth) ? borderWidth : '2',
+    borderColor,
+    backgroundColor,
+    borderRadius: BLOCK_RADIUS_PRESETS.includes(borderRadius) ? borderRadius : '8',
+    padding: BLOCK_SPACING_PRESETS.includes(padding) ? padding : '12',
+    margin: BLOCK_SPACING_PRESETS.includes(margin) ? margin : '0',
+  };
+}
+
+// 获取块样式草稿。
+function getBlockStyleDraft(target) {
+  if (!target) return null;
+  if (state.blockStyleDraft && state.blockStyleTarget === target) {
+    return { ...state.blockStyleDraft };
+  }
+  return buildBlockStyleDraft(target);
+}
+
 // 处理同步块样式Controls。
 function syncBlockStyleControls(range) {
   const target = updateBlockStyleAvailability(range);
@@ -5200,6 +5266,7 @@ function syncBlockStyleControls(range) {
   [
     tbBorderStyle,
     tbBorderWidth,
+    tbBorderColor,
     tbBackgroundColor,
     tbClearBackgroundColor,
     tbBorderRadius,
@@ -5209,8 +5276,10 @@ function syncBlockStyleControls(range) {
   ].forEach(el => { el.disabled = !enabled; });
 
   if (!enabled) {
+    state.blockStyleDraft = null;
     tbBorderStyle.value = 'none';
     tbBorderWidth.value = '0';
+    tbBorderColor.value = '#111111';
     tbBackgroundColor.value = '#ffffff';
     tbBorderRadius.value = '0';
     tbPadding.value = '0';
@@ -5218,19 +5287,21 @@ function syncBlockStyleControls(range) {
     return;
   }
 
-  const borderStyle = parseBlockBorderStyle(target);
-  const borderWidth = parseBlockBorderWidth(target);
-  const backgroundColor = parseBlockBackgroundColor(target);
-  const borderRadius = parseBlockRadius(target);
-  const padding = parseBlockPadding(target);
-  const margin = parseBlockMargin(target);
+  const shouldPreserveDraft = tbBlockPanel.classList.contains('visible')
+    && state.blockStyleDraft
+    && state.blockStyleTarget === target;
+  if (!shouldPreserveDraft || !state.blockStyleDraft) {
+    state.blockStyleDraft = buildBlockStyleDraft(target);
+  }
 
-  tbBorderStyle.value = ['none', 'solid', 'dashed', 'dotted'].includes(borderStyle) ? borderStyle : 'solid';
-  tbBorderWidth.value = BLOCK_BORDER_WIDTH_PRESETS.includes(borderWidth) ? borderWidth : '2';
-  tbBackgroundColor.value = backgroundColor;
-  tbBorderRadius.value = BLOCK_RADIUS_PRESETS.includes(borderRadius) ? borderRadius : '8';
-  tbPadding.value = BLOCK_SPACING_PRESETS.includes(padding) ? padding : '12';
-  tbMargin.value = BLOCK_SPACING_PRESETS.includes(margin) ? margin : '0';
+  const draft = state.blockStyleDraft || buildBlockStyleDraft(target);
+  tbBorderStyle.value = draft.borderStyle;
+  tbBorderWidth.value = draft.borderWidth;
+  tbBorderColor.value = draft.borderColor;
+  tbBackgroundColor.value = draft.backgroundColor;
+  tbBorderRadius.value = draft.borderRadius;
+  tbPadding.value = draft.padding;
+  tbMargin.value = draft.margin;
 }
 
 // 重置块面板位置。
@@ -5280,9 +5351,12 @@ function toggleBlockPanel(force) {
   tbBlockStyleToggle.classList.toggle('active', nextVisible);
 
   if (nextVisible) {
+    const target = getBlockStyleTarget();
+    state.blockStyleDraft = buildBlockStyleDraft(target);
     syncBlockStyleControls();
     positionBlockPanel();
   } else {
+    state.blockStyleDraft = null;
     resetBlockPanelPosition();
   }
 }
@@ -5300,13 +5374,21 @@ function applyBlockStyle(patch = {}) {
   const target = getBlockStyleTarget();
   if (!target) return;
 
+  const draft = getBlockStyleDraft(target) || buildBlockStyleDraft(target);
+  if (!draft) return;
+
   const style = target.style;
-  const nextBorderStyle = patch.borderStyle ?? parseBlockBorderStyle(target);
-  const nextBorderWidth = patch.borderWidth ?? parseBlockBorderWidth(target);
-  const normalizedBackgroundColor = patch.backgroundColor ? normalizeHexColor(patch.backgroundColor) : parseBlockBackgroundColor(target);
-  const nextRadius = patch.borderRadius ?? parseBlockRadius(target);
-  const nextPadding = patch.padding ?? parseBlockPadding(target);
-  const nextMargin = patch.margin ?? parseBlockMargin(target);
+  const nextBorderStyle = patch.borderStyle ?? draft.borderStyle;
+  const nextBorderWidth = String(patch.borderWidth ?? draft.borderWidth);
+  const nextBorderColor = 'borderColor' in patch
+    ? (normalizeHexColor(patch.borderColor) || '#111111')
+    : draft.borderColor;
+  const normalizedBackgroundColor = 'backgroundColor' in patch
+    ? (normalizeHexColor(patch.backgroundColor) || '')
+    : draft.backgroundColor;
+  const nextRadius = String(patch.borderRadius ?? draft.borderRadius);
+  const nextPadding = String(patch.padding ?? draft.padding);
+  const nextMargin = String(patch.margin ?? draft.margin);
 
   const borderDisabled = nextBorderStyle === 'none' || String(nextBorderWidth) === '0';
   if (borderDisabled) {
@@ -5314,6 +5396,7 @@ function applyBlockStyle(patch = {}) {
   } else {
     style.borderStyle = nextBorderStyle;
     style.borderWidth = `${nextBorderWidth}px`;
+    style.borderColor = nextBorderColor;
   }
   if ('backgroundColor' in patch) {
     style.backgroundColor = normalizedBackgroundColor || '';
@@ -5330,11 +5413,24 @@ function applyBlockStyle(patch = {}) {
 
   if (patch.clear) {
     style.border = '';
+    style.borderColor = '';
     style.backgroundColor = '';
     style.borderRadius = '';
     style.padding = '';
     style.margin = '';
   }
+
+  state.blockStyleDraft = patch.clear
+    ? buildBlockStyleDraft(target)
+    : {
+      borderStyle: nextBorderStyle,
+      borderWidth: nextBorderWidth,
+      borderColor: nextBorderColor,
+      backgroundColor: normalizedBackgroundColor || '#ffffff',
+      borderRadius: nextRadius,
+      padding: nextPadding,
+      margin: nextMargin,
+    };
 
   saveSelection();
   syncBlockStyleControls();
@@ -5452,15 +5548,21 @@ function updateToolbar() {
     !sel.isCollapsed &&
     editableHost.contains(sel.anchorNode)
   );
+  const shouldPreserveBlockPanelRange = tbBlockPanel.classList.contains('visible') && state.savedTextRange;
   const range = shouldUseLiveRange ? liveRange : (
-    state.toolbarInteracting ? state.savedTextRange : null
+    (state.toolbarInteracting || shouldPreserveBlockPanelRange) ? state.savedTextRange : null
   );
 
   if (!range) {
     hideToolbarUI();
-    if (!state.toolbarInteracting) state.savedTextRange = null;
+    if (!state.toolbarInteracting && !tbBlockPanel.classList.contains('visible')) state.savedTextRange = null;
     return;
   }
+
+  const preserveActiveBlockPanel = state.toolbarInteracting && tbBlockPanel.classList.contains('visible');
+  const preservedBlockTarget = preserveActiveBlockPanel && state.blockStyleTarget && state.iframeBody?.contains(state.blockStyleTarget)
+    ? state.blockStyleTarget
+    : null;
 
   saveSelection(range);
   const rect = range.getBoundingClientRect();
@@ -5471,12 +5573,17 @@ function updateToolbar() {
 
   // Add orange outline to closest block
   clearSelectedBlocks();
-  let node = range.commonAncestorContainer;
-  if (node.nodeType === 3) node = node.parentElement;
-  const block = node.closest('h1,h2,h3,h4,p,div,li,td,th,blockquote,span') || node;
+  const block = getBlockStyleTarget(range);
   if (block && block !== state.iframeBody) {
     block.classList.add('selected-block');
     state.selectedBlock = block;
+    state.blockStyleTarget = block;
+  }
+  if (preservedBlockTarget) {
+    clearSelectedBlocks();
+    preservedBlockTarget.classList.add('selected-block');
+    state.selectedBlock = preservedBlockTarget;
+    state.blockStyleTarget = preservedBlockTarget;
   }
 
   // Position toolbar above selection, accounting for the iframe offset
@@ -5505,7 +5612,7 @@ function updateToolbar() {
   $('#tbBold').classList.toggle('active', cmd('bold'));
   $('#tbItalic').classList.toggle('active', cmd('italic'));
   syncToolbarTextControls(range);
-  syncBlockStyleControls(range);
+  syncBlockStyleControls(preservedBlockTarget ? null : range);
   if (tbBlockPanel.classList.contains('visible')) {
     positionBlockPanel();
   }
@@ -5619,6 +5726,7 @@ tbBlockStyleToggle.addEventListener('mousedown', (e) => {
 [
   tbBorderStyle,
   tbBorderWidth,
+  tbBorderColor,
   tbBackgroundColor,
   tbClearBackgroundColor,
   tbBorderRadius,
@@ -5636,48 +5744,50 @@ tbBorderStyle.addEventListener('change', () => {
   applyBlockStyle({
     borderStyle: tbBorderStyle.value,
     borderWidth: tbBorderWidth.value,
+    borderColor: tbBorderColor.value,
   });
-  finishToolbarInteraction();
 });
 
 tbBorderWidth.addEventListener('change', () => {
   applyBlockStyle({
     borderStyle: tbBorderStyle.value,
     borderWidth: tbBorderWidth.value,
+    borderColor: tbBorderColor.value,
   });
-  finishToolbarInteraction();
+});
+
+tbBorderColor.addEventListener('input', () => {
+  applyBlockStyle({
+    borderStyle: tbBorderStyle.value,
+    borderWidth: tbBorderWidth.value,
+    borderColor: tbBorderColor.value,
+  });
 });
 
 tbBackgroundColor.addEventListener('input', () => {
   applyBlockStyle({ backgroundColor: tbBackgroundColor.value });
-  finishToolbarInteraction();
 });
 
 tbClearBackgroundColor.addEventListener('click', (e) => {
   e.preventDefault();
   applyBlockStyle({ backgroundColor: '' });
-  finishToolbarInteraction();
 });
 
 tbBorderRadius.addEventListener('change', () => {
   applyBlockStyle({ borderRadius: tbBorderRadius.value });
-  finishToolbarInteraction();
 });
 
 tbPadding.addEventListener('change', () => {
   applyBlockStyle({ padding: tbPadding.value });
-  finishToolbarInteraction();
 });
 
 tbMargin.addEventListener('change', () => {
   applyBlockStyle({ margin: tbMargin.value });
-  finishToolbarInteraction();
 });
 
 tbClearBlockStyle.addEventListener('click', (e) => {
   e.preventDefault();
   applyBlockStyle({ clear: true });
-  finishToolbarInteraction();
 });
 
 tbBlockPanel.addEventListener('mousedown', () => {
