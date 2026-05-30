@@ -2074,6 +2074,7 @@ async function prepareIframeContent(htmlContent, renderToken) {
       tryBuildStaticArticleFallback(doc);
     }
     injectLocalSnapshotPreviewStyle(doc);
+    unlockLocalSnapshotCodeBlocks(doc);
 
     doc.querySelectorAll('img[data-src]:not([src]), iframe[data-src]:not([src]), video[data-src]:not([src])').forEach(node => {
       const dataSrc = node.getAttribute('data-src') || '';
@@ -3224,6 +3225,19 @@ function hasRenderableLocalSnapshotDom(doc) {
   return String(articleNode.textContent || '').replace(/\s+/g, '').length >= 120;
 }
 
+// 处理本地快照里的静态代码块编辑能力。
+function unlockLocalSnapshotCodeBlocks(doc) {
+  if (!doc?.body) return;
+
+  doc.querySelectorAll('.ne-code.ne-codeblock .cm-content').forEach(node => {
+    node.setAttribute('contenteditable', 'true');
+  });
+
+  doc.querySelectorAll('.ne-code.ne-codeblock .codeblock-menu, .ne-code.ne-codeblock .cm-gutters').forEach(node => {
+    node.setAttribute('contenteditable', 'false');
+  });
+}
+
 // 为本地快照模式注入仅用于编辑器预览的布局覆盖。
 function injectLocalSnapshotPreviewStyle(doc) {
   if (!doc?.head || !doc?.body) return;
@@ -3288,6 +3302,15 @@ function injectLocalSnapshotPreviewStyle(doc) {
     body.editor-local-snapshot-mode .tableWrapper,
     body.editor-local-snapshot-mode .syl-table-wrap {
       overflow-x: auto;
+    }
+    body.editor-local-snapshot-mode .ne-code.ne-codeblock:has(.cm-editor) {
+      display: block !important;
+    }
+    body.editor-local-snapshot-mode .ne-code.ne-codeblock:has(.cm-editor) .ne-codeblock-inner {
+      display: block !important;
+    }
+    body.editor-local-snapshot-mode .ne-card-container:has(.ne-code.ne-codeblock .cm-editor) {
+      height: auto !important;
     }
     body.editor-local-snapshot-mode img,
     body.editor-local-snapshot-mode video,
