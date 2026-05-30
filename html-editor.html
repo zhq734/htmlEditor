@@ -1574,6 +1574,12 @@ function stripLocalSnapshotPreviewArtifactsInClone(clone) {
   clone.querySelectorAll('[data-editor-local-code-content]').forEach(el => {
     el.removeAttribute('data-editor-local-code-content');
   });
+  clone.querySelectorAll('[data-editor-local-code-title]').forEach(el => {
+    el.removeAttribute('data-editor-local-code-title');
+  });
+  clone.querySelectorAll('[data-editor-local-code-title-host]').forEach(el => {
+    el.removeAttribute('data-editor-local-code-title-host');
+  });
   clone.querySelectorAll('[data-editor-local-code-scroller]').forEach(el => {
     const originalTabindex = el.getAttribute('data-editor-original-tabindex');
     if (originalTabindex !== null) {
@@ -3253,7 +3259,17 @@ function unlockLocalSnapshotCodeBlocks(doc) {
     node.setAttribute('data-editor-local-code-content', 'true');
   });
 
-  doc.querySelectorAll('.ne-code.ne-codeblock .codeblock-menu, .ne-code.ne-codeblock .cm-gutters').forEach(node => {
+  doc.querySelectorAll('.ne-code.ne-codeblock .codeblock-menu').forEach(node => {
+    node.setAttribute('contenteditable', 'true');
+    node.setAttribute('data-editor-local-code-title-host', 'true');
+  });
+
+  doc.querySelectorAll('.ne-code.ne-codeblock .CodeMirror-code-name, .ne-code.ne-codeblock .ne-codeblock-mode-name').forEach(node => {
+    node.setAttribute('contenteditable', 'true');
+    node.setAttribute('data-editor-local-code-title', 'true');
+  });
+
+  doc.querySelectorAll('.ne-code.ne-codeblock .cm-gutters, .ne-code.ne-codeblock .codeblock-menu .ne-codeblock-collapsed-button, .ne-code.ne-codeblock .codeblock-menu .ne-codeblock-copy, .ne-code.ne-codeblock .codeblock-menu .ne-icon, .ne-code.ne-codeblock .codeblock-menu .ant-divider').forEach(node => {
     node.setAttribute('contenteditable', 'false');
   });
 
@@ -3346,6 +3362,17 @@ function injectLocalSnapshotPreviewStyle(doc) {
       -webkit-user-modify: read-write-plaintext-only;
     }
     body.editor-local-snapshot-mode .cm-content[data-editor-local-code-content="true"] * {
+      caret-color: currentColor !important;
+    }
+    body.editor-local-snapshot-mode [data-editor-local-code-title-host="true"] {
+      caret-color: currentColor !important;
+    }
+    body.editor-local-snapshot-mode [data-editor-local-code-title="true"] {
+      cursor: text;
+      caret-color: currentColor !important;
+      -webkit-user-modify: read-write-plaintext-only;
+    }
+    body.editor-local-snapshot-mode [data-editor-local-code-title="true"] * {
       caret-color: currentColor !important;
     }
     body.editor-local-snapshot-mode .cm-scroller[data-editor-local-code-scroller="true"] {
@@ -3623,13 +3650,130 @@ function resolveCodeCaretRangeFromPoint(codeBlock, clientX, clientY) {
   return null;
 }
 
+// 解析距离点击位置最近的代码块标题宿主。
+function resolveNearestCodeTitleHost(menu, target, clientX, clientY) {
+  const element = target?.nodeType === 3 ? target.parentElement : target;
+  const directHost = element?.closest?.('[data-editor-local-code-title="true"]');
+  if (directHost) return directHost;
+
+  const hosts = Array.from(menu?.querySelectorAll?.('[data-editor-local-code-title="true"]') || []);
+  if (!hosts.length) return null;
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return hosts[0];
+
+  let nearestHost = hosts[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  hosts.forEach(host => {
+    const rect = host.getBoundingClientRect();
+    const centerX = rect.left + (rect.width / 2);
+    const centerY = rect.top + (rect.height / 2);
+    const distance = Math.hypot(clientX - centerX, clientY - centerY);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestHost = host;
+    }
+  });
+  return nearestHost;
+}
+
+// 处理本地快照代码块标题的光标放置。
+function tryPlaceCaretInLocalSnapshotCodeTitle(event) {
+  if (!state.iframeDoc || !state.iframeBody?.classList.contains('editor-local-snapshot-mode')) return false;
+
+  const target = event?.target?.nodeType === 3 ? event.target.parentElement : event?.target;
+  if (!isElementNode(target)) return false;
+
+  const menuHost = target.closest('[data-editor-local-code-title-host="true"], .codeblock-menu');
+  if (!menuHost) return false;
+
+  const titleHost = resolveNearestCodeTitleHost(menuHost, target, event.clientX, event.clientY);
+  if (!titleHost) return false;
+
+  const selection = state.iframeDoc.getSelection();
+  if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+    return false;
+  }
+
+  let range = null;
+
+  if (Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+    if (typeof state.iframeDoc.caretRangeFromPoint === 'function') {
+      const pointRange = state.iframeDoc.caretRangeFromPoint(event.clientX, event.clientY);
+      if (pointRange && titleHost.contains(pointRange.startContainer)) {
+        range = pointRange.cloneRange();
+        range.collapse(true);
+      }
+    }
+
+    if (!range && typeof state.iframeDoc.caretPositionFromPoint === 'function') {
+      const position = state.iframeDoc.caretPositionFromPoint(event.clientX, event.clientY);
+      if (position?.offsetNode && titleHost.contains(position.offsetNode)) {
+        range = createCollapsedTextRange(position.offsetNode, position.offset);
+      }
+    }
+  }
+
+  if (!range) {
+    const textNode = getFirstNonEmptyTextNode(titleHost);
+    if (!textNode) return false;
+    const hostRect = titleHost.getBoundingClientRect();
+    const preferEnd = Boolean(hostRect) && Number.isFinite(event.clientX) && event.clientX >= (hostRect.left + hostRect.width / 2);
+    range = createCollapsedTextRange(textNode, preferEnd ? (textNode.textContent?.length || 0) : 0);
+  }
+
+  if (!range) return false;
+
+  const persistedRange = range.cloneRange();
+
+  try {
+    state.iframeDoc.defaultView?.focus?.();
+  } catch (err) {}
+  try {
+    state.iframeBody?.focus?.();
+  } catch (err) {}
+  try {
+    titleHost.focus?.();
+  } catch (err) {}
+
+  const nextSelection = state.iframeDoc.getSelection();
+  if (!nextSelection) return false;
+  nextSelection.removeAllRanges();
+  nextSelection.addRange(range);
+
+  requestAnimationFrame(() => {
+    if (!state.iframeDoc) return;
+    const liveSelection = state.iframeDoc.getSelection();
+    const hasCaret = liveSelection
+      && liveSelection.rangeCount > 0
+      && liveSelection.isCollapsed
+      && liveSelection.anchorNode
+      && titleHost.contains(liveSelection.anchorNode);
+    if (hasCaret) return;
+    try {
+      state.iframeDoc.defaultView?.focus?.();
+    } catch (err) {}
+    try {
+      state.iframeBody?.focus?.();
+    } catch (err) {}
+    try {
+      titleHost.focus?.();
+    } catch (err) {}
+    liveSelection?.removeAllRanges();
+    liveSelection?.addRange(persistedRange.cloneRange());
+  });
+
+  return true;
+}
+
 // 为静态代码块点击兜底放置光标。
 function tryPlaceCaretInLocalSnapshotCodeBlock(event) {
   if (!state.iframeDoc || !state.iframeBody?.classList.contains('editor-local-snapshot-mode')) return false;
 
   const target = event?.target?.nodeType === 3 ? event.target.parentElement : event?.target;
   if (!isElementNode(target)) return false;
-  if (target.closest('.cm-gutters, .codeblock-menu')) return false;
+  if (target.closest('.cm-gutters')) return false;
+  if (target.closest('.codeblock-menu')) {
+    return tryPlaceCaretInLocalSnapshotCodeTitle(event);
+  }
 
   const codeBlock = target.closest('.ne-code.ne-codeblock');
   if (!codeBlock || !codeBlock.querySelector('.cm-editor')) return false;
