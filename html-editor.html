@@ -1571,6 +1571,19 @@ function stripLocalSnapshotPreviewArtifactsInClone(clone) {
   if (body) {
     body.classList.remove('editor-local-snapshot-mode');
   }
+  clone.querySelectorAll('[data-editor-local-code-content]').forEach(el => {
+    el.removeAttribute('data-editor-local-code-content');
+  });
+  clone.querySelectorAll('[data-editor-local-code-scroller]').forEach(el => {
+    const originalTabindex = el.getAttribute('data-editor-original-tabindex');
+    if (originalTabindex !== null) {
+      el.setAttribute('tabindex', originalTabindex);
+    } else {
+      el.removeAttribute('tabindex');
+    }
+    el.removeAttribute('data-editor-original-tabindex');
+    el.removeAttribute('data-editor-local-code-scroller');
+  });
 }
 
 // 判断元素节点。
@@ -2274,6 +2287,8 @@ function bindIframeEvents() {
       }
     }
 
+    const codeCaretPlaced = tryPlaceCaretInLocalSnapshotCodeBlock(e);
+
     if (target === body) {
       dismissSelection();
       return;
@@ -2287,6 +2302,10 @@ function bindIframeEvents() {
       const hasActiveCaret = hasCollapsedCaretInHost(selectionHost);
       if (!hasActiveTextSelection) {
         if (hasActiveCaret) {
+          hideToolbarUI();
+          return;
+        }
+        if (codeCaretPlaced) {
           hideToolbarUI();
           return;
         }
@@ -3231,10 +3250,19 @@ function unlockLocalSnapshotCodeBlocks(doc) {
 
   doc.querySelectorAll('.ne-code.ne-codeblock .cm-content').forEach(node => {
     node.setAttribute('contenteditable', 'true');
+    node.setAttribute('data-editor-local-code-content', 'true');
   });
 
   doc.querySelectorAll('.ne-code.ne-codeblock .codeblock-menu, .ne-code.ne-codeblock .cm-gutters').forEach(node => {
     node.setAttribute('contenteditable', 'false');
+  });
+
+  doc.querySelectorAll('.ne-code.ne-codeblock .cm-scroller').forEach(node => {
+    if (!node.hasAttribute('data-editor-original-tabindex') && node.hasAttribute('tabindex')) {
+      node.setAttribute('data-editor-original-tabindex', node.getAttribute('tabindex') || '');
+    }
+    node.removeAttribute('tabindex');
+    node.setAttribute('data-editor-local-code-scroller', 'true');
   });
 }
 
@@ -3311,6 +3339,17 @@ function injectLocalSnapshotPreviewStyle(doc) {
     }
     body.editor-local-snapshot-mode .ne-card-container:has(.ne-code.ne-codeblock .cm-editor) {
       height: auto !important;
+    }
+    body.editor-local-snapshot-mode .cm-content[data-editor-local-code-content="true"] {
+      cursor: text;
+      caret-color: currentColor !important;
+      -webkit-user-modify: read-write-plaintext-only;
+    }
+    body.editor-local-snapshot-mode .cm-content[data-editor-local-code-content="true"] * {
+      caret-color: currentColor !important;
+    }
+    body.editor-local-snapshot-mode .cm-scroller[data-editor-local-code-scroller="true"] {
+      cursor: text;
     }
     body.editor-local-snapshot-mode img,
     body.editor-local-snapshot-mode video,
@@ -3497,6 +3536,156 @@ function ensureEditableHostFromSelection() {
 
   activateEditableBlock(block);
   return getEditableHost();
+}
+
+// 获取文本节点里的可放置光标范围。
+function createCollapsedTextRange(textNode, offset = 0) {
+  if (!state.iframeDoc || !textNode || textNode.nodeType !== 3) return null;
+  const range = state.iframeDoc.createRange();
+  const maxOffset = typeof textNode.textContent === 'string' ? textNode.textContent.length : 0;
+  range.setStart(textNode, Math.max(0, Math.min(offset, maxOffset)));
+  range.collapse(true);
+  return range;
+}
+
+// 获取节点下第一个非空文本节点。
+function getFirstNonEmptyTextNode(root) {
+  if (!state.iframeDoc || !root) return null;
+  const walker = state.iframeDoc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node?.textContent?.length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  return walker.nextNode();
+}
+
+// 获取节点下最后一个非空文本节点。
+function getLastNonEmptyTextNode(root) {
+  if (!state.iframeDoc || !root) return null;
+  const walker = state.iframeDoc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return node?.textContent?.length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  let current = walker.nextNode();
+  let last = current;
+  while (current) {
+    last = current;
+    current = walker.nextNode();
+  }
+  return last;
+}
+
+// 解析代码块里距离点击位置最近的代码行。
+function resolveNearestCodeLine(codeBlock, target, clientY) {
+  const element = target?.nodeType === 3 ? target.parentElement : target;
+  const directLine = element?.closest?.('.cm-line');
+  if (directLine) return directLine;
+
+  const lines = Array.from(codeBlock?.querySelectorAll?.('.cm-line') || []);
+  if (!lines.length) return null;
+  if (!Number.isFinite(clientY)) return lines[0];
+
+  let nearestLine = lines[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  lines.forEach(line => {
+    const rect = line.getBoundingClientRect();
+    const centerY = rect.top + (rect.height / 2);
+    const distance = Math.abs(clientY - centerY);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestLine = line;
+    }
+  });
+  return nearestLine;
+}
+
+// 尝试按点击坐标解析代码块光标范围。
+function resolveCodeCaretRangeFromPoint(codeBlock, clientX, clientY) {
+  if (!state.iframeDoc || !codeBlock || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+
+  if (typeof state.iframeDoc.caretRangeFromPoint === 'function') {
+    const range = state.iframeDoc.caretRangeFromPoint(clientX, clientY);
+    if (range && codeBlock.contains(range.startContainer)) {
+      const nextRange = range.cloneRange();
+      nextRange.collapse(true);
+      return nextRange;
+    }
+  }
+
+  if (typeof state.iframeDoc.caretPositionFromPoint === 'function') {
+    const position = state.iframeDoc.caretPositionFromPoint(clientX, clientY);
+    if (position?.offsetNode && codeBlock.contains(position.offsetNode)) {
+      return createCollapsedTextRange(position.offsetNode, position.offset);
+    }
+  }
+
+  return null;
+}
+
+// 为静态代码块点击兜底放置光标。
+function tryPlaceCaretInLocalSnapshotCodeBlock(event) {
+  if (!state.iframeDoc || !state.iframeBody?.classList.contains('editor-local-snapshot-mode')) return false;
+
+  const target = event?.target?.nodeType === 3 ? event.target.parentElement : event?.target;
+  if (!isElementNode(target)) return false;
+  if (target.closest('.cm-gutters, .codeblock-menu')) return false;
+
+  const codeBlock = target.closest('.ne-code.ne-codeblock');
+  if (!codeBlock || !codeBlock.querySelector('.cm-editor')) return false;
+
+  const selection = state.iframeDoc.getSelection();
+  if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+    return false;
+  }
+
+  let range = resolveCodeCaretRangeFromPoint(codeBlock, event.clientX, event.clientY);
+  if (!range) {
+    const line = resolveNearestCodeLine(codeBlock, target, event.clientY);
+    const lineRect = line?.getBoundingClientRect?.();
+    const preferEnd = Boolean(lineRect) && Number.isFinite(event.clientX) && event.clientX >= (lineRect.left + lineRect.width / 2);
+    const textNode = preferEnd ? getLastNonEmptyTextNode(line || codeBlock) : getFirstNonEmptyTextNode(line || codeBlock);
+    if (!textNode) return false;
+    const offset = preferEnd ? (textNode.textContent?.length || 0) : 0;
+    range = createCollapsedTextRange(textNode, offset);
+  }
+
+  if (!range) return false;
+
+  const persistedRange = range.cloneRange();
+
+  try {
+    state.iframeDoc.defaultView?.focus?.();
+  } catch (err) {}
+  try {
+    state.iframeBody?.focus?.();
+  } catch (err) {}
+
+  const nextSelection = state.iframeDoc.getSelection();
+  if (!nextSelection) return false;
+  nextSelection.removeAllRanges();
+  nextSelection.addRange(range);
+
+  requestAnimationFrame(() => {
+    if (!state.iframeDoc) return;
+    const liveSelection = state.iframeDoc.getSelection();
+    const hasCaret = liveSelection
+      && liveSelection.rangeCount > 0
+      && liveSelection.isCollapsed
+      && liveSelection.anchorNode
+      && codeBlock.contains(liveSelection.anchorNode);
+    if (hasCaret) return;
+    try {
+      state.iframeDoc.defaultView?.focus?.();
+    } catch (err) {}
+    try {
+      state.iframeBody?.focus?.();
+    } catch (err) {}
+    liveSelection?.removeAllRanges();
+    liveSelection?.addRange(persistedRange.cloneRange());
+  });
+
+  return true;
 }
 
 // 判断是否存在文本选区InHost。
