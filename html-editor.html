@@ -3049,9 +3049,16 @@ function updateSidebarToggleIcon() {
   btnToggleSidebar.setAttribute('aria-label', btnToggleSidebar.title);
 }
 
+// 判断当前是否应显示本地文件侧边栏。
+function shouldShowFileSidebar() {
+  return state.currentSourceType === 'local' && !!state.currentDirHandle;
+}
+
 // 应用侧边栏Collapsed状态。
 function applySidebarCollapsedState() {
-  workspaceShell.classList.toggle('sidebar-hidden', state.isFileSidebarCollapsed);
+  const visible = shouldShowFileSidebar();
+  workspaceShell.classList.toggle('sidebar-hidden', !visible || state.isFileSidebarCollapsed);
+  btnToggleSidebar.hidden = !visible;
   updateSidebarToggleIcon();
 }
 
@@ -3076,7 +3083,7 @@ function restoreSidebarCollapsedState() {
 
 // 更新文件侧边栏元信息。
 function updateFileSidebarMeta() {
-  if (!state.currentDirHandle) {
+  if (state.currentSourceType !== 'local' || !state.currentDirHandle) {
     fileSidebarMeta.textContent = '未打开文件夹';
     return;
   }
@@ -3088,10 +3095,11 @@ function updateFileSidebarMeta() {
 function renderFileSidebar() {
   updateFileSidebarMeta();
 
-  if (!state.currentDirHandle || state.folderHtmlFiles.length === 0) {
+  if (state.currentSourceType !== 'local' || !state.currentDirHandle || state.folderHtmlFiles.length === 0) {
     fileSidebarEmpty.hidden = false;
     fileSidebarList.hidden = true;
     fileSidebarList.innerHTML = '';
+    applySidebarCollapsedState();
     return;
   }
 
@@ -3131,6 +3139,8 @@ function renderFileSidebar() {
 
     fileSidebarList.appendChild(button);
   });
+
+  applySidebarCollapsedState();
 }
 
 btnToggleSidebar.addEventListener('click', () => {
@@ -4700,13 +4710,20 @@ async function importUrlSnapshot({ url, html }) {
 
   revokeLocalPreviewObjectUrls();
   resetLocalPreviewLookupCaches();
+  resetEditorSessionState();
   state.currentFileHandle = null;
   state.currentDirHandle = null;
+  state.folderHtmlFiles = [];
+  state.folderFileSessions = {};
+  state.activeFolderFileKey = '';
+  state.currentFileBaseHtml = '';
   state.currentFileName = `URL 快照 - ${new URL(normalizedUrl).hostname}`;
   state.currentFileRelativePath = '';
   state.currentDirName = '';
   state.currentSourceUrl = normalizedUrl;
   state.currentSourceType = 'url';
+  state.preserveLocalInteractions = false;
+  state.isFileSidebarCollapsed = false;
 
   try {
     await clearStoredHandle(HANDLE_LAST_FILE_KEY);
@@ -4726,6 +4743,7 @@ async function importUrlSnapshot({ url, html }) {
 
   persistFileMeta();
   loadEditorContent(normalizeFetchedHtml(html, normalizedUrl));
+  renderFileSidebar();
   closeUrlDialog(true);
   showToast('URL 快照已导入');
 }
