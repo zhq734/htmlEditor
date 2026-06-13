@@ -195,6 +195,21 @@ body {
   font-size: 12px;
   min-height: 18px;
 }
+.dialog-detail-box {
+  display: block;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow: auto;
+}
 .dialog__actions {
   display: flex;
   gap: 8px;
@@ -250,6 +265,34 @@ body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+.dialog-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.dialog-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+}
+.dialog-option__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg-bright);
+}
+.dialog-option__desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dialog-option__meta {
+  color: var(--accent);
+  font-size: 12px;
 }
 
 /* =============================================
@@ -807,6 +850,7 @@ body {
     width: 220px;
   }
   .floating-toolbar { flex-wrap: wrap; max-width: 90vw; }
+  .dialog-option-grid { grid-template-columns: 1fr; }
 }
 </style>
 </head>
@@ -1057,6 +1101,47 @@ body {
   </div>
 </div>
 
+<div class="dialog-backdrop" id="shareExportDialogBackdrop">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="shareExportDialogTitle">
+    <div class="dialog__header">
+      <div>
+        <div class="dialog__title" id="shareExportDialogTitle">分享导出</div>
+        <div class="dialog__subtitle">URL 快照默认仍依赖原站资源。发给别人前，请先选择导出方式。</div>
+      </div>
+      <button class="btn btn--icon" id="btnCloseShareExportDialog" title="关闭">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 0 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg>
+      </button>
+    </div>
+    <div class="dialog__body">
+      <div class="dialog-option-grid">
+        <div class="dialog-option">
+          <div class="dialog-option__title">在线版 HTML</div>
+          <div class="dialog-option__desc">保持当前 URL 快照结构，外部样式、图片、字体等资源继续指向原站地址。</div>
+          <div class="dialog-option__meta">适合：有网络环境、自己继续编辑、内部预览</div>
+        </div>
+        <div class="dialog-option">
+          <div class="dialog-option__title">离线单文件 HTML</div>
+          <div class="dialog-option__desc">尽量把页面里的远程样式、图片、字体、背景图内联进一个文件中；被跨域限制的资源会保留远程地址。</div>
+          <div class="dialog-option__meta">适合：发给别人、归档备份、优先保证可打开</div>
+        </div>
+      </div>
+      <div class="dialog-tips">
+        <div>1. 在线版导出速度快，但别人打开时仍可能受登录态、防盗链、跨域和源站删除影响。</div>
+        <div>2. 离线单文件会尽力内联远程资源；如果目标站不允许读取资源内容，相关资源仍会保留外链。</div>
+        <div>3. 如果你要最稳妥的完整归档，仍建议使用浏览器“网页，完整”或整包保存后，再回到编辑器继续修改。</div>
+      </div>
+      <pre class="dialog-detail-box" id="shareExportDialogDetails" hidden></pre>
+    </div>
+    <div class="dialog__footer">
+      <div class="dialog__status" id="shareExportDialogStatus">请选择导出方式</div>
+      <div class="dialog__actions dialog__actions--wrap">
+        <button class="btn" id="btnExportShareOnline" title="导出在线版 HTML">导出在线版</button>
+        <button class="btn btn--primary" id="btnExportShareOffline" title="导出离线单文件 HTML">导出离线单文件</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Hidden file inputs -->
 <input type="file" id="fileInputImage" accept="image/*" style="display:none" />
 <input type="file" id="fileInputVideo" accept="video/*" style="display:none" />
@@ -1110,7 +1195,9 @@ const state = {
   historyDebounceTimer: 0,
   recordHistoryOnLoad: false,
   urlDialogOpen: false,
+  shareExportDialogOpen: false,
   isFetchingUrl: false,
+  isPreparingShareExport: false,
   renderedImportSessionId: '',
   folderHtmlFiles: [],
   folderFileSessions: {},
@@ -1151,7 +1238,11 @@ const btnToggleSidebar = $('#btnToggleSidebar');
 const editorContainer = $('#editorContainer');
 const previewPane = $('#previewPane');
 const sourcePane = $('#sourcePane');
+const btnOpenFolder = $('#btnOpenFolder');
 const btnOpenUrl = $('#btnOpenUrl');
+const btnSource = $('#btnSource');
+const btnOverwrite = $('#btnOverwrite');
+const btnExport = $('#btnExport');
 const btnUndo = $('#btnUndo');
 const btnRedo = $('#btnRedo');
 const gutter = $('#gutter');
@@ -1169,6 +1260,12 @@ const btnUseFallbackHtml = $('#btnUseFallbackHtml');
 const btnUseRenderedPayload = $('#btnUseRenderedPayload');
 const btnOpenRenderedImport = $('#btnOpenRenderedImport');
 const btnFetchUrlSnapshot = $('#btnFetchUrlSnapshot');
+const shareExportDialogBackdrop = $('#shareExportDialogBackdrop');
+const btnCloseShareExportDialog = $('#btnCloseShareExportDialog');
+const shareExportDialogStatus = $('#shareExportDialogStatus');
+const shareExportDialogDetails = $('#shareExportDialogDetails');
+const btnExportShareOnline = $('#btnExportShareOnline');
+const btnExportShareOffline = $('#btnExportShareOffline');
 const tbFontSize = $('#tbFontSize');
 const tbFontSizeOptions = $('#tbFontSizeOptions');
 const tbLineHeight = $('#tbLineHeight');
@@ -1953,15 +2050,22 @@ function sanitizeDocumentClone(clone) {
   return clone;
 }
 
-// 获取导出HTML。
-async function getExportHTML() {
+// 创建导出用的文档克隆。
+async function createPreparedExportClone() {
   const clone = state.isEditMode
     ? createSourceHTMLClone(sourceArea.value)
     : (state.iframeDoc ? createIframeHTMLClone() : null);
-  if (!clone) return '';
+  if (!clone) return null;
   restorePreviewObjectUrlsInClone(clone);
   stripLocalSnapshotPreviewArtifactsInClone(clone);
   await embedMediaAssetsIntoClone(clone);
+  return clone;
+}
+
+// 获取导出HTML。
+async function getExportHTML() {
+  const clone = await createPreparedExportClone();
+  if (!clone) return '';
   return '<!DOCTYPE html>\n' + clone.outerHTML;
 }
 
@@ -1975,6 +2079,282 @@ function getPersistableEditorHTML() {
   restorePreviewObjectUrlsInClone(clone);
   stripLocalSnapshotPreviewArtifactsInClone(clone);
   return '<!DOCTYPE html>\n' + clone.outerHTML;
+}
+
+// 读取 Blob As DataURL。
+function readBlobAsDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('资源读取失败'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// 判断是否应跳过离线资源内联。
+function shouldSkipOfflineInliningValue(value) {
+  const text = String(value || '').trim();
+  return !text || /^data:|^blob:|^#|^javascript:|^mailto:|^tel:|^about:/i.test(text);
+}
+
+// 规范化导出文件名。
+function buildSuggestedExportName(options = {}) {
+  const { offline = false } = options;
+  if (state.currentSourceType === 'url' && state.currentSourceUrl) {
+    const host = new URL(state.currentSourceUrl).hostname.replace(/[^\w.-]+/g, '_');
+    return offline ? `${host}.offline.html` : `${host}.html`;
+  }
+  return 'exported.html';
+}
+
+// 拉取远程文本资源。
+async function fetchRemoteTextResource(resourceUrl, context) {
+  if (context.textCache.has(resourceUrl)) return context.textCache.get(resourceUrl);
+  try {
+    let text = '';
+    let lastError = null;
+    for (const credentials of ['omit', 'include']) {
+      try {
+        const response = await fetch(resourceUrl, { credentials });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        text = await response.text();
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (!text && lastError) {
+      throw lastError;
+    }
+    context.textCache.set(resourceUrl, text);
+    return text;
+  } catch (err) {
+    context.failedResources.add(resourceUrl);
+    console.warn('离线导出文本资源读取失败', resourceUrl, err);
+    context.textCache.set(resourceUrl, '');
+    return '';
+  }
+}
+
+// 拉取远程二进制资源并转为 DataURL。
+async function fetchRemoteDataUrl(resourceUrl, context) {
+  if (context.dataUrlCache.has(resourceUrl)) return context.dataUrlCache.get(resourceUrl);
+  try {
+    let blob = null;
+    let lastError = null;
+    for (const credentials of ['omit', 'include']) {
+      try {
+        const response = await fetch(resourceUrl, { credentials });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        blob = await response.blob();
+        if (!blob || !blob.size) {
+          throw new Error('资源为空或浏览器禁止读取');
+        }
+        break;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (!blob && lastError) {
+      throw lastError;
+    }
+    const dataUrl = await readBlobAsDataURL(blob);
+    context.dataUrlCache.set(resourceUrl, dataUrl);
+    return dataUrl;
+  } catch (err) {
+    context.failedResources.add(resourceUrl);
+    console.warn('离线导出二进制资源读取失败', resourceUrl, err);
+    context.dataUrlCache.set(resourceUrl, '');
+    return '';
+  }
+}
+
+// 离线化单个资源地址。
+async function inlineRemoteAssetUrl(rawUrl, baseUrl, context) {
+  const value = String(rawUrl || '').trim();
+  if (shouldSkipOfflineInliningValue(value)) return value;
+  const absoluteUrl = absolutizeUrl(value, baseUrl);
+  if (!isRemoteSnapshotResourceUrl(absoluteUrl)) return absoluteUrl;
+  const dataUrl = await fetchRemoteDataUrl(absoluteUrl, context);
+  return dataUrl || absoluteUrl;
+}
+
+// 离线化 Srcset。
+async function inlineRemoteSrcset(srcset, baseUrl, context) {
+  const items = String(srcset || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (!items.length) return String(srcset || '');
+
+  const rewritten = [];
+  for (const item of items) {
+    const bits = item.split(/\s+/);
+    const nextUrl = await inlineRemoteAssetUrl(bits[0], baseUrl, context);
+    rewritten.push([nextUrl, ...bits.slice(1)].join(' ').trim());
+  }
+  return rewritten.join(', ');
+}
+
+// 离线化 CSS 文本中的远程依赖。
+async function inlineRemoteCssText(cssText, baseUrl, context, stack = new Set()) {
+  if (!cssText) return String(cssText || '');
+
+  let nextCss = await replaceAsync(String(cssText), /url\((['"]?)([^'")]+)\1\)/gi, async match => {
+    const rawUrl = String(match[2] || '').trim();
+    if (shouldSkipOfflineInliningValue(rawUrl)) return match[0];
+    const nextUrl = await inlineRemoteAssetUrl(rawUrl, baseUrl, context);
+    return `url("${nextUrl}")`;
+  });
+
+  nextCss = await replaceAsync(nextCss, /@import\s+(?:url\(\s*(['"]?)([^'")]+)\1\s*\)|(['"])([^'"]+)\3)\s*([^;]*);/gi, async match => {
+    const rawUrl = String(match[2] || match[4] || '').trim();
+    const mediaQuery = String(match[5] || '').trim();
+    if (shouldSkipOfflineInliningValue(rawUrl)) return match[0];
+
+    const absoluteUrl = absolutizeUrl(rawUrl, baseUrl);
+    if (!isRemoteSnapshotResourceUrl(absoluteUrl)) {
+      return `@import url("${absoluteUrl}")${mediaQuery ? ` ${mediaQuery}` : ''};`;
+    }
+    if (stack.has(absoluteUrl)) {
+      return '';
+    }
+
+    const importedCss = await fetchRemoteTextResource(absoluteUrl, context);
+    if (!importedCss) {
+      return `@import url("${absoluteUrl}")${mediaQuery ? ` ${mediaQuery}` : ''};`;
+    }
+
+    const nestedCss = await inlineRemoteCssText(importedCss, absoluteUrl, context, new Set([...stack, absoluteUrl]));
+    if (!nestedCss.trim()) return '';
+    return mediaQuery ? `@media ${mediaQuery} {\n${nestedCss}\n}` : nestedCss;
+  });
+
+  return nextCss;
+}
+
+// 离线化导出克隆中的远程资源。
+async function inlineRemoteResourcesInClone(clone, baseUrl, context) {
+  promoteDeferredMediaAttributes(clone);
+
+  const styleNodes = Array.from(clone.querySelectorAll('style'));
+  for (const styleNode of styleNodes) {
+    styleNode.textContent = await inlineRemoteCssText(styleNode.textContent || '', baseUrl, context);
+  }
+
+  const styleAttrNodes = Array.from(clone.querySelectorAll('[style]'));
+  for (const node of styleAttrNodes) {
+    const originalStyle = node.getAttribute('style') || '';
+    const nextStyle = await inlineRemoteCssText(originalStyle, baseUrl, context);
+    if (nextStyle && nextStyle !== originalStyle) {
+      node.setAttribute('style', nextStyle);
+    }
+  }
+
+  const headLinks = Array.from(clone.querySelectorAll('link[href]'));
+  for (const link of headLinks) {
+    const href = link.getAttribute('href') || '';
+    const rel = (link.getAttribute('rel') || '').toLowerCase();
+    if (!href) continue;
+
+    if (/\bstylesheet\b/.test(rel)) {
+      const absoluteUrl = absolutizeUrl(href, baseUrl);
+      const cssText = await fetchRemoteTextResource(absoluteUrl, context);
+      if (!cssText) {
+        link.setAttribute('href', absoluteUrl);
+        continue;
+      }
+
+      const styleEl = clone.ownerDocument.createElement('style');
+      styleEl.textContent = await inlineRemoteCssText(cssText, absoluteUrl, context, new Set([absoluteUrl]));
+      const media = link.getAttribute('media');
+      if (media) styleEl.setAttribute('media', media);
+      link.replaceWith(styleEl);
+      continue;
+    }
+
+    if (/\b(?:preload|modulepreload|prefetch|preconnect|dns-prefetch|prerender|canonical|manifest)\b/.test(rel)) {
+      link.remove();
+      continue;
+    }
+
+    if (/\b(?:icon|apple-touch-icon|mask-icon)\b/.test(rel)) {
+      const absoluteUrl = absolutizeUrl(href, baseUrl);
+      const dataUrl = await fetchRemoteDataUrl(absoluteUrl, context);
+      if (dataUrl) {
+        link.setAttribute('href', dataUrl);
+      } else {
+        link.remove();
+      }
+    }
+  }
+
+  const srcNodes = Array.from(clone.querySelectorAll('[src]'));
+  for (const node of srcNodes) {
+    const rawSrc = node.getAttribute('src') || '';
+    const nextSrc = await inlineRemoteAssetUrl(rawSrc, baseUrl, context);
+    if (nextSrc && nextSrc !== rawSrc) {
+      node.setAttribute('src', nextSrc);
+    }
+  }
+
+  const posterNodes = Array.from(clone.querySelectorAll('[poster]'));
+  for (const node of posterNodes) {
+    const rawPoster = node.getAttribute('poster') || '';
+    const nextPoster = await inlineRemoteAssetUrl(rawPoster, baseUrl, context);
+    if (nextPoster && nextPoster !== rawPoster) {
+      node.setAttribute('poster', nextPoster);
+    }
+  }
+
+  const srcsetNodes = Array.from(clone.querySelectorAll('[srcset]'));
+  for (const node of srcsetNodes) {
+    const rawSrcset = node.getAttribute('srcset') || '';
+    const nextSrcset = await inlineRemoteSrcset(rawSrcset, baseUrl, context);
+    if (nextSrcset && nextSrcset !== rawSrcset) {
+      node.setAttribute('srcset', nextSrcset);
+    }
+  }
+
+  const svgHrefNodes = Array.from(clone.querySelectorAll('image, feImage'));
+  for (const node of svgHrefNodes) {
+    const rawHref = node.getAttribute('href') || node.getAttribute('xlink:href') || '';
+    if (!rawHref) continue;
+    const nextHref = await inlineRemoteAssetUrl(rawHref, baseUrl, context);
+    if (nextHref && nextHref !== rawHref) {
+      node.setAttribute('href', nextHref);
+      if (node.hasAttribute('xlink:href')) {
+        node.setAttribute('xlink:href', nextHref);
+      }
+    }
+  }
+
+  stripDeferredMediaAttributes(clone);
+  clone.querySelectorAll('base').forEach(node => node.remove());
+}
+
+// 获取离线单文件导出 HTML。
+async function getOfflineShareExportHTML() {
+  const clone = await createPreparedExportClone();
+  if (!clone) {
+    return { html: '', failedResources: [] };
+  }
+
+  const context = {
+    dataUrlCache: new Map(),
+    textCache: new Map(),
+    failedResources: new Set(),
+  };
+  const baseUrl = state.currentSourceUrl || clone.querySelector('base')?.getAttribute('href') || '';
+  await inlineRemoteResourcesInClone(clone, baseUrl, context);
+  return {
+    html: '<!DOCTYPE html>\n' + clone.outerHTML,
+    failedResources: [...context.failedResources],
+  };
 }
 
 // 释放本地预览对象URL。
@@ -4414,9 +4794,33 @@ function updateHistoryButtons() {
   btnRedo.disabled = state.historyIndex >= state.history.length - 1 || state.historyIndex === -1;
 }
 
+// 更新导出按钮文案。
+function updateExportButtonsForSourceType() {
+  const overwriteLabel = btnOverwrite.querySelector('span');
+  const exportLabel = btnExport.querySelector('span');
+  if (state.currentSourceType === 'url') {
+    if (overwriteLabel) overwriteLabel.textContent = '分享导出';
+    if (exportLabel) exportLabel.textContent = '导出分享版';
+    btnOverwrite.title = '打开分享导出';
+    btnExport.title = '导出在线版或离线单文件版';
+    return;
+  }
+  if (overwriteLabel) overwriteLabel.textContent = '覆盖源文件';
+  if (exportLabel) exportLabel.textContent = '导出新文件';
+  btnOverwrite.title = '覆盖源文件';
+  btnExport.title = '导出新文件';
+}
+
 // 设置URL弹窗状态。
 function setUrlDialogStatus(message) {
   urlDialogStatus.textContent = message;
+}
+
+// 设置分享导出弹窗详情。
+function setShareExportDialogDetails(message = '') {
+  const text = String(message || '').trim();
+  shareExportDialogDetails.textContent = text;
+  shareExportDialogDetails.hidden = !text;
 }
 
 // 设置URL弹窗Loading。
@@ -4451,6 +4855,37 @@ function closeUrlDialog(force = false) {
   urlDialogBackdrop.classList.remove('visible');
 }
 
+// 设置分享导出弹窗状态。
+function setShareExportDialogStatus(message) {
+  shareExportDialogStatus.textContent = message;
+}
+
+// 设置分享导出弹窗 Loading。
+function setShareExportDialogLoading(isLoading) {
+  state.isPreparingShareExport = isLoading;
+  btnExportShareOnline.disabled = isLoading;
+  btnExportShareOffline.disabled = isLoading;
+  btnCloseShareExportDialog.disabled = isLoading;
+}
+
+// 打开分享导出弹窗。
+function openShareExportDialog() {
+  if (state.currentSourceType !== 'url') return;
+  setShareExportDialogLoading(false);
+  state.shareExportDialogOpen = true;
+  shareExportDialogBackdrop.classList.add('visible');
+  setShareExportDialogStatus('请选择导出方式');
+  setShareExportDialogDetails('');
+}
+
+// 关闭分享导出弹窗。
+function closeShareExportDialog(force = false) {
+  if (state.isPreparingShareExport && !force) return;
+  state.shareExportDialogOpen = false;
+  shareExportDialogBackdrop.classList.remove('visible');
+  setShareExportDialogDetails('');
+}
+
 // 标准化URL输入。
 function normalizeUrlInput(value) {
   const raw = String(value || '').trim();
@@ -4465,6 +4900,15 @@ function absolutizeUrl(url, baseUrl) {
     return new URL(url, baseUrl).href;
   } catch {
     return url;
+  }
+}
+
+// 读取URL origin。
+function readUrlOrigin(value) {
+  try {
+    return new URL(String(value || '')).origin;
+  } catch {
+    return '';
   }
 }
 
@@ -4492,6 +4936,62 @@ function rewriteCssUrls(cssText, baseUrl) {
   });
 }
 
+const DEFERRED_SRC_ATTRS = ['data-src', 'data-original', 'data-actualsrc', 'data-lazy-src', 'data-original-src', 'data-url'];
+const DEFERRED_SRCSET_ATTRS = ['data-srcset', 'data-original-srcset'];
+const DEFERRED_POSTER_ATTRS = ['data-poster', 'data-original-poster'];
+
+// 判断是否像占位资源地址。
+function looksLikePlaceholderAssetValue(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return true;
+  if (text === 'about:blank') return true;
+  if (/^data:image\/(?:gif|svg\+xml)/i.test(text)) return true;
+  return /(?:placeholder|spacer|blank)\.(?:gif|png|jpg|jpeg|webp|svg)(?:[?#].*)?$/i.test(text);
+}
+
+// 读取首个非空属性值。
+function readFirstNonEmptyAttribute(node, attrNames = []) {
+  for (const name of attrNames) {
+    const value = node.getAttribute?.(name) || '';
+    if (String(value).trim()) return value;
+  }
+  return '';
+}
+
+// 提升懒加载媒体属性。
+function promoteDeferredMediaAttributes(root) {
+  if (!root?.querySelectorAll) return;
+
+  root.querySelectorAll('img,iframe,video,source').forEach(node => {
+    const currentSrc = node.getAttribute('src') || '';
+    const deferredSrc = readFirstNonEmptyAttribute(node, DEFERRED_SRC_ATTRS);
+    if (deferredSrc && (!currentSrc || looksLikePlaceholderAssetValue(currentSrc))) {
+      node.setAttribute('src', deferredSrc);
+    }
+
+    const currentSrcset = node.getAttribute('srcset') || '';
+    const deferredSrcset = readFirstNonEmptyAttribute(node, DEFERRED_SRCSET_ATTRS);
+    if (deferredSrcset && (!currentSrcset || looksLikePlaceholderAssetValue(currentSrcset))) {
+      node.setAttribute('srcset', deferredSrcset);
+    }
+
+    const currentPoster = node.getAttribute('poster') || '';
+    const deferredPoster = readFirstNonEmptyAttribute(node, DEFERRED_POSTER_ATTRS);
+    if (deferredPoster && (!currentPoster || looksLikePlaceholderAssetValue(currentPoster))) {
+      node.setAttribute('poster', deferredPoster);
+    }
+  });
+}
+
+// 清理懒加载媒体属性。
+function stripDeferredMediaAttributes(root) {
+  if (!root?.querySelectorAll) return;
+  const attrNames = [...DEFERRED_SRC_ATTRS, ...DEFERRED_SRCSET_ATTRS, ...DEFERRED_POSTER_ATTRS];
+  root.querySelectorAll('img,iframe,video,source').forEach(node => {
+    attrNames.forEach(name => node.removeAttribute(name));
+  });
+}
+
 // 创建Rendered导入会话Id。
 function createRenderedImportSessionId() {
   return `html-editor-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -4502,7 +5002,149 @@ function buildRenderedSnapshotScript({ url, sessionId }) {
   const payload = JSON.stringify({ url, sessionId });
   return `(async () => {
   const cfg = ${payload};
+  const deferredSrcAttrs = ${JSON.stringify(DEFERRED_SRC_ATTRS)};
+  const deferredSrcsetAttrs = ${JSON.stringify(DEFERRED_SRCSET_ATTRS)};
+  const deferredPosterAttrs = ${JSON.stringify(DEFERRED_POSTER_ATTRS)};
+  const failedResources = [];
+  const shouldSkipValue = value => {
+    const text = String(value || '').trim();
+    return !text || /^data:|^blob:|^#|^javascript:|^mailto:|^tel:|^about:/i.test(text);
+  };
+  const looksLikePlaceholder = value => {
+    const text = String(value || '').trim().toLowerCase();
+    if (!text) return true;
+    if (text === 'about:blank') return true;
+    if (/^data:image\\/(?:gif|svg\\+xml)/i.test(text)) return true;
+    return /(?:placeholder|spacer|blank)\\.(?:gif|png|jpg|jpeg|webp|svg)(?:[?#].*)?$/i.test(text);
+  };
+  const readFirstNonEmptyAttribute = (node, names = []) => {
+    for (const name of names) {
+      const value = node.getAttribute?.(name) || '';
+      if (String(value).trim()) return value;
+    }
+    return '';
+  };
+  const promoteDeferredMediaAttributes = root => {
+    if (!root?.querySelectorAll) return;
+    root.querySelectorAll('img,iframe,video,source').forEach(node => {
+      const currentSrc = node.getAttribute('src') || '';
+      const deferredSrc = readFirstNonEmptyAttribute(node, deferredSrcAttrs);
+      if (deferredSrc && (!currentSrc || looksLikePlaceholder(currentSrc))) {
+        node.setAttribute('src', deferredSrc);
+      }
+
+      const currentSrcset = node.getAttribute('srcset') || '';
+      const deferredSrcset = readFirstNonEmptyAttribute(node, deferredSrcsetAttrs);
+      if (deferredSrcset && (!currentSrcset || looksLikePlaceholder(currentSrcset))) {
+        node.setAttribute('srcset', deferredSrcset);
+      }
+
+      const currentPoster = node.getAttribute('poster') || '';
+      const deferredPoster = readFirstNonEmptyAttribute(node, deferredPosterAttrs);
+      if (deferredPoster && (!currentPoster || looksLikePlaceholder(currentPoster))) {
+        node.setAttribute('poster', deferredPoster);
+      }
+    });
+  };
+  const stripDeferredMediaAttributes = root => {
+    if (!root?.querySelectorAll) return;
+    const attrNames = [...deferredSrcAttrs, ...deferredSrcsetAttrs, ...deferredPosterAttrs];
+    root.querySelectorAll('img,iframe,video,source').forEach(node => {
+      attrNames.forEach(name => node.removeAttribute(name));
+    });
+  };
+  const absolutize = value => {
+    try {
+      return new URL(value, location.href).href;
+    } catch {
+      return value;
+    }
+  };
+  const blobToDataUrl = blob => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('资源读取失败'));
+    reader.readAsDataURL(blob);
+  });
+  const fetchAsDataUrl = async rawUrl => {
+    const value = String(rawUrl || '').trim();
+    if (shouldSkipValue(value)) return value;
+    const absoluteUrl = absolutize(value);
+    try {
+      const response = await fetch(absoluteUrl, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status);
+      }
+      const blob = await response.blob();
+      if (!blob || !blob.size) {
+        throw new Error('资源为空或浏览器禁止读取');
+      }
+      return await blobToDataUrl(blob);
+    } catch (err) {
+      failedResources.push(absoluteUrl);
+      console.warn('HTML Editor 渲染态采集未能内联资源', absoluteUrl, err);
+      return absoluteUrl;
+    }
+  };
+  const inlineSrcset = async srcset => {
+    const items = String(srcset || '')
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean);
+    if (!items.length) return String(srcset || '');
+
+    const rewritten = [];
+    for (const item of items) {
+      const bits = item.split(/\\s+/);
+      const nextUrl = await fetchAsDataUrl(bits[0]);
+      rewritten.push([nextUrl, ...bits.slice(1)].join(' ').trim());
+    }
+    return rewritten.join(', ');
+  };
   const clone = document.documentElement.cloneNode(true);
+  promoteDeferredMediaAttributes(clone);
+  const liveImages = Array.from(document.querySelectorAll('img'));
+  const cloneImages = Array.from(clone.querySelectorAll('img'));
+  cloneImages.forEach((img, index) => {
+    const liveImg = liveImages[index];
+    const liveSrc = liveImg?.currentSrc || liveImg?.getAttribute('src') || '';
+    if (liveSrc && (!img.getAttribute('src') || looksLikePlaceholder(img.getAttribute('src')) || liveSrc !== img.getAttribute('src'))) {
+      img.setAttribute('src', liveSrc);
+      if (liveImg?.currentSrc) {
+        img.removeAttribute('srcset');
+        img.removeAttribute('sizes');
+        const picture = img.parentElement?.tagName === 'PICTURE' ? img.parentElement : null;
+        if (picture) {
+          picture.querySelectorAll('source').forEach(source => source.remove());
+        }
+      }
+    }
+  });
+  const imageNodes = Array.from(clone.querySelectorAll('img[src]'));
+  for (const img of imageNodes) {
+    const rawSrc = img.getAttribute('src') || '';
+    const nextSrc = await fetchAsDataUrl(rawSrc);
+    if (nextSrc && nextSrc !== rawSrc) {
+      img.setAttribute('src', nextSrc);
+    }
+  }
+  const srcsetNodes = Array.from(clone.querySelectorAll('img[srcset], source[srcset]'));
+  for (const node of srcsetNodes) {
+    const rawSrcset = node.getAttribute('srcset') || '';
+    const nextSrcset = await inlineSrcset(rawSrcset);
+    if (nextSrcset && nextSrcset !== rawSrcset) {
+      node.setAttribute('srcset', nextSrcset);
+    }
+  }
+  const posterNodes = Array.from(clone.querySelectorAll('[poster]'));
+  for (const node of posterNodes) {
+    const rawPoster = node.getAttribute('poster') || '';
+    const nextPoster = await fetchAsDataUrl(rawPoster);
+    if (nextPoster && nextPoster !== rawPoster) {
+      node.setAttribute('poster', nextPoster);
+    }
+  }
+  stripDeferredMediaAttributes(clone);
   clone.querySelectorAll('script').forEach(el => el.remove());
   clone.querySelectorAll('meta[http-equiv="refresh"]').forEach(el => el.remove());
   clone.querySelectorAll('*').forEach(el => {
@@ -4515,7 +5157,8 @@ function buildRenderedSnapshotScript({ url, sessionId }) {
     source: 'html-editor-rendered-import',
     sessionId: cfg.sessionId,
     url: cfg.url,
-    html
+    html,
+    failedResources
   };
   let delivered = false;
   try {
@@ -4630,12 +5273,19 @@ async function importRenderedSnapshotPayload(raw, options = {}) {
 
   await importUrlSnapshot({ url: payload.url, html: payload.html });
   state.renderedImportSessionId = '';
+  if (Array.isArray(payload.failedResources) && payload.failedResources.length) {
+    console.warn('HTML Editor 渲染态采集未能内联的资源列表:', payload.failedResources);
+    setUrlDialogStatus(`渲染态快照已导入，但仍有 ${payload.failedResources.length} 个资源未能在采集阶段内联`);
+    showToast(`渲染态导入完成，仍有 ${payload.failedResources.length} 个资源保留外链`);
+  }
 }
 
 // 标准化FetchedHTML。
 function normalizeFetchedHtml(html, sourceUrl) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
+
+  promoteDeferredMediaAttributes(doc);
 
   doc.querySelectorAll('script').forEach(el => el.remove());
   doc.querySelectorAll('meta[http-equiv="refresh"]').forEach(el => el.remove());
@@ -4683,6 +5333,8 @@ function normalizeFetchedHtml(html, sourceUrl) {
   doc.querySelectorAll('style').forEach(style => {
     style.textContent = rewriteCssUrls(style.textContent, sourceUrl);
   });
+
+  stripDeferredMediaAttributes(doc);
 
   if (!doc.querySelector('base')) {
     const base = doc.createElement('base');
@@ -4809,11 +5461,12 @@ function loadEditorContent(html, options = {}) {
   persistHtmlSnapshot(html);
   persistFileMeta();
   updateStatusPath();
+  updateExportButtonsForSourceType();
   if (state.currentDirHandle && state.currentSourceType === 'local' && state.activeFolderFileKey) {
     scheduleFolderSessionPersist();
   }
   statusInfo.textContent = state.currentSourceType === 'url'
-    ? 'URL 快照模式 — 可编辑快照 | 建议导出为新文件'
+    ? 'URL 快照模式 — 可编辑快照 | Ctrl+S / 分享导出 可生成在线版或离线单文件版'
     : hasDetachedLocalAssets
       ? '多文件资源页 — 当前只加载了单个 HTML；请使用“打开文件夹”加载整包目录以恢复样式/图片/脚本'
     : useLocalSnapshotMode
@@ -4834,6 +5487,16 @@ btnCloseUrlDialog.addEventListener('click', () => {
 urlDialogBackdrop.addEventListener('mousedown', (e) => {
   if (e.target === urlDialogBackdrop) {
     closeUrlDialog();
+  }
+});
+
+btnCloseShareExportDialog.addEventListener('click', () => {
+  closeShareExportDialog();
+});
+
+shareExportDialogBackdrop.addEventListener('mousedown', (e) => {
+  if (e.target === shareExportDialogBackdrop) {
+    closeShareExportDialog();
   }
 });
 
@@ -6909,8 +7572,124 @@ $('#btnOverwrite').addEventListener('click', async () => {
   await overwriteFile();
 });
 
+// 写出导出文件。
+async function saveExportedHtmlFile(filename, html, successMessage = '文件已导出') {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(html);
+      await writable.close();
+      if (successMessage) showToast(successMessage);
+      return true;
+    } catch (err) {
+      if (err.name === 'AbortError') return false;
+      downloadFile(filename, html);
+      if (successMessage) showToast(successMessage);
+      return true;
+    }
+  }
+
+  downloadFile(filename, html);
+  if (successMessage) showToast(successMessage);
+  return true;
+}
+
+// 导出在线分享版。
+async function exportOnlineShareFile() {
+  setShareExportDialogLoading(true);
+  setShareExportDialogStatus('正在生成在线版 HTML...');
+  setShareExportDialogDetails('');
+
+  try {
+    const html = await getExportHTML();
+    const filename = buildSuggestedExportName({ offline: false });
+    const saved = await saveExportedHtmlFile(filename, html, '在线版 HTML 已导出');
+    if (saved) {
+      closeShareExportDialog(true);
+    }
+  } finally {
+    setShareExportDialogLoading(false);
+  }
+}
+
+// 导出离线单文件分享版。
+async function exportOfflineShareFile() {
+  setShareExportDialogLoading(true);
+  setShareExportDialogStatus('正在整理远程资源并生成离线单文件...');
+  setShareExportDialogDetails('');
+
+  try {
+    const { html, failedResources } = await getOfflineShareExportHTML();
+    if (!html) {
+      throw new Error('导出内容为空');
+    }
+
+    const filename = buildSuggestedExportName({ offline: true });
+    const saved = await saveExportedHtmlFile(filename, html, '');
+    if (!saved) return;
+
+    if (failedResources.length) {
+      const uniqueFailedResources = [...new Set(failedResources.map(item => String(item || '').trim()).filter(Boolean))];
+      const sourceOrigin = readUrlOrigin(state.currentSourceUrl);
+      const crossOriginCount = sourceOrigin
+        ? uniqueFailedResources.filter(url => {
+            const origin = readUrlOrigin(url);
+            return origin && origin !== sourceOrigin;
+          }).length
+        : 0;
+      const detailLines = [];
+      if (sourceOrigin && crossOriginCount === uniqueFailedResources.length) {
+        detailLines.push(`这些失败资源全部不在页面主站 ${sourceOrigin} 下，浏览器通常无法把它们读取成离线 Data URL。`);
+      } else if (sourceOrigin && crossOriginCount > 0) {
+        detailLines.push(`失败资源里有 ${crossOriginCount} 个与页面主站 ${sourceOrigin} 不同源，通常会被浏览器跨域限制拦住。`);
+      }
+      if (window.location.protocol === 'file:') {
+        detailLines.push('当前编辑器是通过 file:// 打开的，浏览器对跨域资源读取会更严格。');
+      }
+      detailLines.push('这不是 img 标签漏处理，而是这些地址虽然能显示，但浏览器拿不到它们的资源内容。');
+      detailLines.push('可落地方案：');
+      detailLines.push('1. 让资源服务端开启 CORS，允许当前页面读取图片、字体、样式。');
+      detailLines.push('2. 或者提供同源代理 / 后端中转，由服务端拉取资源后再导出。');
+      detailLines.push('3. 如果只是临时归档，直接在目标页用浏览器“网页，完整”或 MHTML 保存会更稳。');
+      detailLines.push('');
+      detailLines.push('未内联资源列表：');
+      uniqueFailedResources.slice(0, 12).forEach((url, index) => {
+        detailLines.push(`${index + 1}. ${url}`);
+      });
+      if (uniqueFailedResources.length > 12) {
+        detailLines.push(`... 另外还有 ${uniqueFailedResources.length - 12} 个`);
+      }
+      console.warn('HTML Editor 离线导出未能内联的资源列表:', failedResources);
+      setShareExportDialogStatus(`已导出，但仍有 ${uniqueFailedResources.length} 个资源无法内联`);
+      setShareExportDialogDetails(detailLines.join('\n'));
+      showToast(`离线单文件已导出，仍有 ${uniqueFailedResources.length} 个资源保留外链`);
+    } else {
+      setShareExportDialogStatus('离线单文件已导出，远程静态资源已完成内联');
+      setShareExportDialogDetails('');
+      showToast('离线单文件已导出');
+      closeShareExportDialog(true);
+    }
+  } catch (err) {
+    console.error(err);
+    setShareExportDialogStatus(`离线导出失败：${err.message}`);
+    setShareExportDialogDetails('');
+    showToast(`离线导出失败: ${err.message}`);
+  } finally {
+    setShareExportDialogLoading(false);
+  }
+}
+
 // 处理overwrite文件。
 async function overwriteFile() {
+  if (state.currentSourceType === 'url') {
+    openShareExportDialog();
+    return;
+  }
+
   const html = await getExportHTML();
   if (state.currentFileHandle && state.currentFileHandle.createWritable) {
     try {
@@ -6946,30 +7725,21 @@ async function overwriteFile() {
 
 // Export new file
 $('#btnExport').addEventListener('click', async () => {
-  const html = await getExportHTML();
-  const suggestedName = state.currentSourceType === 'url' && state.currentSourceUrl
-    ? `${new URL(state.currentSourceUrl).hostname.replace(/[^\w.-]+/g, '_')}.html`
-    : 'exported.html';
-
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName,
-        types: [{ description: 'HTML', accept: { 'text/html': ['.html'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(html);
-      await writable.close();
-      showToast('文件已导出');
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        downloadFile(suggestedName, html);
-      }
-    }
-  } else {
-    downloadFile(suggestedName, html);
-    showToast('文件已导出');
+  if (state.currentSourceType === 'url') {
+    openShareExportDialog();
+    return;
   }
+
+  const html = await getExportHTML();
+  await saveExportedHtmlFile(buildSuggestedExportName({ offline: false }), html, '文件已导出');
+});
+
+btnExportShareOnline.addEventListener('click', async () => {
+  await exportOnlineShareFile();
+});
+
+btnExportShareOffline.addEventListener('click', async () => {
+  await exportOfflineShareFile();
 });
 
 // 处理download文件。
@@ -7001,7 +7771,11 @@ function showToast(msg) {
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 's') {
     e.preventDefault();
-    overwriteFile();
+    if (state.currentSourceType === 'url') {
+      openShareExportDialog();
+    } else {
+      overwriteFile();
+    }
   }
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
