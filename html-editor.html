@@ -865,6 +865,10 @@ body {
     <span>HTML Editor</span>
   </div>
   <div class="menu-bar__actions">
+    <button class="btn" id="btnOpenFile" title="打开 HTML 文件">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 1.5h5.19c.2 0 .39.08.53.22l2.81 2.81c.14.14.22.33.22.53v7.19A1.75 1.75 0 0 1 10.75 14h-7A1.75 1.75 0 0 1 2 12.25v-9A1.75 1.75 0 0 1 3.75 1.5zm4.69 1H3.75A.75.75 0 0 0 3 3.25v9c0 .41.34.75.75.75h7a.75.75 0 0 0 .75-.75V5.56H9.75A1.25 1.25 0 0 1 8.5 4.31V2.5zm1.06.7v1.11c0 .14.11.25.25.25h1.11L9.5 3.2z"/></svg>
+      <span>打开文件</span>
+    </button>
     <button class="btn" id="btnOpenFolder" title="打开文件夹">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
       <span>打开文件夹</span>
@@ -1049,7 +1053,7 @@ body {
 <footer class="status-bar">
   <div class="status-bar__left">
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
-    <span class="status-bar__path" id="statusPath">未打开文件夹</span>
+    <span class="status-bar__path" id="statusPath">未打开文件或文件夹</span>
   </div>
   <div class="status-bar__right" id="statusInfo">Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式</div>
 </footer>
@@ -1238,6 +1242,7 @@ const btnToggleSidebar = $('#btnToggleSidebar');
 const editorContainer = $('#editorContainer');
 const previewPane = $('#previewPane');
 const sourcePane = $('#sourcePane');
+const btnOpenFile = $('#btnOpenFile');
 const btnOpenFolder = $('#btnOpenFolder');
 const btnOpenUrl = $('#btnOpenUrl');
 const btnSource = $('#btnSource');
@@ -1325,6 +1330,9 @@ const HANDLE_LAST_DIR_KEY = 'lastDirHandle';
 const SNAPSHOT_LAST_HTML_KEY = 'lastHtmlSnapshot';
 const SNAPSHOT_LAST_FOLDER_SESSION_KEY = 'lastFolderSession';
 const MAX_PERSISTED_SNAPSHOT_LENGTH = 2500000;
+const HTML_FILE_PICKER_OPTIONS = {
+  types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+};
 let persistSnapshotTimer = 0;
 let persistFolderSessionTimer = 0;
 const MAX_HISTORY_ENTRIES = 80;
@@ -3555,7 +3563,7 @@ function updateStatusPath() {
     statusPath.textContent = `${dirName} / ${fileName}`;
     return;
   }
-  statusPath.textContent = fileName || dirName || '未打开文件夹';
+  statusPath.textContent = fileName || dirName || '未打开文件或文件夹';
 }
 
 // 应用编辑器布局From状态。
@@ -7512,27 +7520,58 @@ $('#fileInputVideo').addEventListener('change', async function () {
    File Operations
    ============================================= */
 
-// Open Folder
+// Open File / Folder
+async function openSingleHtmlFile(options = {}) {
+  const { handle = null, file = null, showToastMessage = true } = options;
+  const nextHandle = handle || null;
+  const nextFile = file || (nextHandle?.getFile ? await nextHandle.getFile() : null);
+  if (!nextFile) return false;
+
+  const text = await nextFile.text();
+  revokeLocalPreviewObjectUrls();
+  resetEditorSessionState();
+
+  await setCurrentFileContext({
+    fileHandle: nextHandle,
+    fileName: nextFile.name || nextHandle?.name || '',
+    fileRelativePath: nextFile.name || nextHandle?.name || '',
+    dirHandle: null,
+    dirName: '',
+  });
+
+  loadEditorContent(text);
+  applyEditorLayoutFromState(text);
+
+  if (showToastMessage) {
+    showToast(`已打开文件: ${nextFile.name || nextHandle?.name || 'index.html'}`);
+  }
+  return true;
+}
+
+async function openSingleHtmlFilePicker() {
+  if (window.showOpenFilePicker) {
+    const [handle] = await window.showOpenFilePicker(HTML_FILE_PICKER_OPTIONS);
+    return openSingleHtmlFile({ handle });
+  }
+  $('#fileInputHTML').click();
+  return true;
+}
+
+btnOpenFile.addEventListener('click', async () => {
+  try {
+    await openSingleHtmlFilePicker();
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error(err);
+      $('#fileInputHTML').click();
+    }
+  }
+});
+
 $('#btnOpenFolder').addEventListener('click', async () => {
   try {
     if (!window.showDirectoryPicker) {
-      if (window.showOpenFilePicker) {
-        const [handle] = await window.showOpenFilePicker({
-          types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
-        });
-        const file = await handle.getFile();
-        await setCurrentFileContext({
-          fileHandle: handle,
-          fileName: handle.name,
-          fileRelativePath: handle.name,
-          dirHandle: null,
-          dirName: '',
-        });
-        loadEditorContent(await file.text());
-        showToast(`已打开: ${handle.name}`);
-      } else {
-        $('#fileInputHTML').click();
-      }
+      await openSingleHtmlFilePicker();
       return;
     }
 
@@ -7554,17 +7593,14 @@ $('#btnOpenFolder').addEventListener('click', async () => {
 $('#fileInputHTML').addEventListener('change', async function () {
   const file = this.files[0];
   if (!file) return;
-  const text = await file.text();
-  await setCurrentFileContext({
-    fileHandle: null,
-    fileName: file.name,
-    fileRelativePath: file.name,
-    dirHandle: null,
-    dirName: '',
-  });
-  loadEditorContent(text);
-  showToast(`已加载: ${file.name}`);
-  this.value = '';
+  try {
+    await openSingleHtmlFile({ file });
+  } catch (err) {
+    console.error(err);
+    showToast(`打开文件失败: ${err.message}`);
+  } finally {
+    this.value = '';
+  }
 });
 
 // Overwrite source file
