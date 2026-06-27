@@ -547,6 +547,51 @@ body {
 }
 
 /* =============================================
+   HTML File Drop Overlay
+   ============================================= */
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  color: var(--fg-bright);
+  pointer-events: none;
+  z-index: 2600;
+}
+body.file-drag-active .file-drop-overlay { display: flex; }
+.file-drop-overlay__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(360px, 100%);
+  padding: 24px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.file-drop-overlay__icon {
+  width: 44px;
+  height: 44px;
+  color: var(--accent);
+}
+.file-drop-overlay__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-bright);
+}
+.file-drop-overlay__desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* =============================================
    Source Code View
    ============================================= */
 .source-panel-header {
@@ -865,10 +910,6 @@ body {
     <span>HTML Editor</span>
   </div>
   <div class="menu-bar__actions">
-    <button class="btn" id="btnOpenFile" title="打开 HTML 文件">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 1.5h5.19c.2 0 .39.08.53.22l2.81 2.81c.14.14.22.33.22.53v7.19A1.75 1.75 0 0 1 10.75 14h-7A1.75 1.75 0 0 1 2 12.25v-9A1.75 1.75 0 0 1 3.75 1.5zm4.69 1H3.75A.75.75 0 0 0 3 3.25v9c0 .41.34.75.75.75h7a.75.75 0 0 0 .75-.75V5.56H9.75A1.25 1.25 0 0 1 8.5 4.31V2.5zm1.06.7v1.11c0 .14.11.25.25.25h1.11L9.5 3.2z"/></svg>
-      <span>打开文件</span>
-    </button>
     <button class="btn" id="btnOpenFolder" title="打开文件夹">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
       <span>打开文件夹</span>
@@ -950,6 +991,22 @@ body {
       </div>
       <textarea class="source-area" id="sourceArea" spellcheck="false" wrap="off"></textarea>
     </div>
+  </div>
+</div>
+
+<!-- =============================================
+     HTML File Drop Overlay
+     ============================================= -->
+<div class="file-drop-overlay" id="fileDropOverlay" aria-hidden="true" hidden>
+  <div class="file-drop-overlay__panel">
+    <svg class="file-drop-overlay__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/>
+      <path d="M14 2v5h5"/>
+      <path d="M9 14h6"/>
+      <path d="M12 11v6"/>
+    </svg>
+    <div class="file-drop-overlay__title">拖入 HTML 文件</div>
+    <div class="file-drop-overlay__desc">松开后立即进入预览，可继续编辑、覆盖或导出。</div>
   </div>
 </div>
 
@@ -1053,7 +1110,7 @@ body {
 <footer class="status-bar">
   <div class="status-bar__left">
     <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H8.414L7.107 2.737A1 1 0 0 0 6.414 2.4H2z"/></svg>
-    <span class="status-bar__path" id="statusPath">未打开文件或文件夹</span>
+    <span class="status-bar__path" id="statusPath">未打开文件夹</span>
   </div>
   <div class="status-bar__right" id="statusInfo">Ready — Ctrl+S 覆盖保存 | Ctrl+E 切换编辑模式</div>
 </footer>
@@ -1223,6 +1280,7 @@ const state = {
   sourceSyncReason: '',
   sourceNodeAnchors: [],
   sourceLocateFlashTimer: 0,
+  fileDragDepth: 0,
 };
 
 /* =============================================
@@ -1242,7 +1300,6 @@ const btnToggleSidebar = $('#btnToggleSidebar');
 const editorContainer = $('#editorContainer');
 const previewPane = $('#previewPane');
 const sourcePane = $('#sourcePane');
-const btnOpenFile = $('#btnOpenFile');
 const btnOpenFolder = $('#btnOpenFolder');
 const btnOpenUrl = $('#btnOpenUrl');
 const btnSource = $('#btnSource');
@@ -1252,6 +1309,7 @@ const btnUndo = $('#btnUndo');
 const btnRedo = $('#btnRedo');
 const gutter = $('#gutter');
 const floatingToolbar = $('#floatingToolbar');
+const fileDropOverlay = $('#fileDropOverlay');
 const toast = $('#toast');
 const statusPath = $('#statusPath');
 const statusInfo = $('#statusInfo');
@@ -2955,6 +3013,8 @@ function bindIframeEvents() {
   const doc = state.iframeDoc;
   const body = state.iframeBody;
 
+  installHtmlDropListeners(doc);
+
   // Selection change → update toolbar
   doc.addEventListener('selectionchange', () => {
     if (state.selectionPointerDown) return;
@@ -3563,7 +3623,7 @@ function updateStatusPath() {
     statusPath.textContent = `${dirName} / ${fileName}`;
     return;
   }
-  statusPath.textContent = fileName || dirName || '未打开文件或文件夹';
+  statusPath.textContent = fileName || dirName || '未打开文件夹';
 }
 
 // 应用编辑器布局From状态。
@@ -7520,21 +7580,122 @@ $('#fileInputVideo').addEventListener('change', async function () {
    File Operations
    ============================================= */
 
-// Open File / Folder
+/**
+ * 判断文件名是否为可打开的 HTML 文件。
+ * @param {string} name 文件名或路径。
+ * @returns {boolean} 是 HTML 文件返回 true，否则返回 false。
+ */
+function isHtmlFileName(name) {
+  return /\.(html|htm)$/i.test(String(name || '').trim());
+}
+
+/**
+ * 判断文件对象是否为可打开的 HTML 文件。
+ * @param {File|null} file 需要检查的文件对象。
+ * @returns {boolean} 是 HTML 文件返回 true，否则返回 false。
+ */
+function isHtmlFile(file) {
+  if (!file) return false;
+  return isHtmlFileName(file.name) || file.type === 'text/html';
+}
+
+/**
+ * 判断拖拽事件是否包含文件。
+ * @param {DragEvent} event 拖拽事件对象。
+ * @returns {boolean} 包含文件返回 true，否则返回 false。
+ */
+function isFileDragEvent(event) {
+  const types = Array.from(event?.dataTransfer?.types || []);
+  return types.includes('Files');
+}
+
+/**
+ * 显示 HTML 文件拖拽覆盖层。
+ * @returns {void} 无返回值。
+ */
+function showFileDropOverlay() {
+  document.body.classList.add('file-drag-active');
+  fileDropOverlay.hidden = false;
+  fileDropOverlay.setAttribute('aria-hidden', 'false');
+}
+
+/**
+ * 隐藏 HTML 文件拖拽覆盖层。
+ * @returns {void} 无返回值。
+ */
+function hideFileDropOverlay() {
+  state.fileDragDepth = 0;
+  document.body.classList.remove('file-drag-active');
+  fileDropOverlay.hidden = true;
+  fileDropOverlay.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * 从拖拽数据中解析第一个 HTML 文件及可选文件句柄。
+ * @param {DataTransfer|null} dataTransfer 拖拽事件携带的数据对象。
+ * @returns {Promise<{file: File, handle: FileSystemFileHandle|null}|null>} 返回 HTML 文件信息，未找到时返回 null。
+ */
+async function resolveDroppedHtmlFile(dataTransfer) {
+  const itemCandidates = Array.from(dataTransfer?.items || [])
+    .filter(item => item.kind === 'file')
+    .map(item => ({
+      file: item.getAsFile?.() || null,
+      handlePromise: typeof item.getAsFileSystemHandle === 'function'
+        ? item.getAsFileSystemHandle().catch(() => null)
+        : Promise.resolve(null),
+    }));
+
+  for (const candidate of itemCandidates) {
+    const handle = await candidate.handlePromise;
+    if (handle?.kind === 'file') {
+      const file = await handle.getFile();
+      if (isHtmlFile(file) || isHtmlFileName(handle.name)) {
+        return { file, handle };
+      }
+    }
+    if (isHtmlFile(candidate.file)) {
+      return { file: candidate.file, handle: null };
+    }
+  }
+
+  const files = Array.from(dataTransfer?.files || []);
+  const file = files.find(isHtmlFile);
+  return file ? { file, handle: null } : null;
+}
+
+/**
+ * 打开单个 HTML 文件并刷新编辑器上下文。
+ * @param {Object} options 文件打开配置。
+ * @param {FileSystemFileHandle|null} options.handle 可选文件句柄，用于后续覆盖保存。
+ * @param {File|null} options.file 可选文件对象；未提供时从句柄读取。
+ * @param {boolean} options.showToastMessage 是否显示成功提示。
+ * @param {string} options.successMessage 自定义成功提示。
+ * @returns {Promise<boolean>} 成功打开返回 true，否则返回 false。
+ */
 async function openSingleHtmlFile(options = {}) {
-  const { handle = null, file = null, showToastMessage = true } = options;
+  const {
+    handle = null,
+    file = null,
+    showToastMessage = true,
+    successMessage = '',
+  } = options;
   const nextHandle = handle || null;
   const nextFile = file || (nextHandle?.getFile ? await nextHandle.getFile() : null);
   if (!nextFile) return false;
+  if (!isHtmlFile(nextFile) && !isHtmlFileName(nextHandle?.name)) {
+    throw new Error('请选择 .html 或 .htm 文件');
+  }
 
   const text = await nextFile.text();
+  const displayName = nextFile.name || nextHandle?.name || 'HTML 文件';
   revokeLocalPreviewObjectUrls();
   resetEditorSessionState();
+  applyFileSessionState(null);
 
   await setCurrentFileContext({
     fileHandle: nextHandle,
-    fileName: nextFile.name || nextHandle?.name || '',
-    fileRelativePath: nextFile.name || nextHandle?.name || '',
+    fileName: displayName,
+    fileRelativePath: displayName,
     dirHandle: null,
     dirName: '',
   });
@@ -7543,35 +7704,107 @@ async function openSingleHtmlFile(options = {}) {
   applyEditorLayoutFromState(text);
 
   if (showToastMessage) {
-    showToast(`已打开文件: ${nextFile.name || nextHandle?.name || 'index.html'}`);
+    showToast(successMessage || `已打开文件: ${displayName}`);
   }
   return true;
 }
 
-async function openSingleHtmlFilePicker() {
-  if (window.showOpenFilePicker) {
-    const [handle] = await window.showOpenFilePicker(HTML_FILE_PICKER_OPTIONS);
-    return openSingleHtmlFile({ handle });
-  }
-  $('#fileInputHTML').click();
-  return true;
-}
+/**
+ * 处理 HTML 文件拖入编辑器后的打开流程。
+ * @param {DragEvent} event 拖拽释放事件对象。
+ * @returns {Promise<void>} 无返回值。
+ */
+async function handleHtmlFileDrop(event) {
+  if (!isFileDragEvent(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  hideFileDropOverlay();
 
-btnOpenFile.addEventListener('click', async () => {
   try {
-    await openSingleHtmlFilePicker();
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      console.error(err);
-      $('#fileInputHTML').click();
+    const dropped = await resolveDroppedHtmlFile(event.dataTransfer);
+    if (!dropped) {
+      showToast('请拖入 .html 或 .htm 文件');
+      return;
     }
+    const displayName = dropped.file.name || dropped.handle?.name || 'HTML 文件';
+    const canWriteSource = Boolean(dropped.handle?.createWritable);
+    await openSingleHtmlFile({
+      handle: dropped.handle,
+      file: dropped.file,
+      successMessage: canWriteSource
+        ? `已拖入预览: ${displayName}`
+        : `已拖入预览: ${displayName}；覆盖时需选择原文件`,
+    });
+  } catch (err) {
+    console.error(err);
+    showToast(`拖入文件失败: ${err.message}`);
   }
-});
+}
 
+/**
+ * 处理文件拖入时的进入事件。
+ * @param {DragEvent} event 拖拽进入事件对象。
+ * @returns {void} 无返回值。
+ */
+function handleHtmlFileDragEnter(event) {
+  if (!isFileDragEvent(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.fileDragDepth += 1;
+  showFileDropOverlay();
+}
+
+/**
+ * 处理文件悬停在编辑器上方的事件。
+ * @param {DragEvent} event 拖拽悬停事件对象。
+ * @returns {void} 无返回值。
+ */
+function handleHtmlFileDragOver(event) {
+  if (!isFileDragEvent(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.dataTransfer.dropEffect = 'copy';
+  showFileDropOverlay();
+}
+
+/**
+ * 处理文件离开编辑器区域的事件。
+ * @param {DragEvent} event 拖拽离开事件对象。
+ * @returns {void} 无返回值。
+ */
+function handleHtmlFileDragLeave(event) {
+  if (!isFileDragEvent(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.fileDragDepth = Math.max(0, state.fileDragDepth - 1);
+  if (state.fileDragDepth === 0) {
+    hideFileDropOverlay();
+  }
+}
+
+/**
+ * 为指定文档注册 HTML 文件拖拽导入事件。
+ * @param {Document} targetDoc 需要绑定事件的文档对象。
+ * @returns {void} 无返回值。
+ */
+function installHtmlDropListeners(targetDoc) {
+  if (!targetDoc?.addEventListener) return;
+  targetDoc.addEventListener('dragenter', handleHtmlFileDragEnter);
+  targetDoc.addEventListener('dragover', handleHtmlFileDragOver);
+  targetDoc.addEventListener('dragleave', handleHtmlFileDragLeave);
+  targetDoc.addEventListener('drop', handleHtmlFileDrop);
+}
+
+// Open Folder
 $('#btnOpenFolder').addEventListener('click', async () => {
   try {
     if (!window.showDirectoryPicker) {
-      await openSingleHtmlFilePicker();
+      if (window.showOpenFilePicker) {
+        const [handle] = await window.showOpenFilePicker(HTML_FILE_PICKER_OPTIONS);
+        await openSingleHtmlFile({ handle });
+      } else {
+        $('#fileInputHTML').click();
+      }
       return;
     }
 
@@ -7607,6 +7840,72 @@ $('#fileInputHTML').addEventListener('change', async function () {
 $('#btnOverwrite').addEventListener('click', async () => {
   await overwriteFile();
 });
+
+// 获取当前本地HTML保存文件名。
+function getCurrentLocalHtmlFileName() {
+  const rawName = state.currentFileName
+    || state.currentFileHandle?.name
+    || state.currentFileRelativePath
+    || buildSuggestedExportName({ offline: false });
+  const baseName = String(rawName || '')
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop() || 'exported.html';
+  return isHtmlFileName(baseName) ? baseName : `${baseName}.html`;
+}
+
+// 标记当前本地HTML已保存。
+function markCurrentLocalHtmlSaved(html) {
+  state.currentFileBaseHtml = html;
+  if (state.activeFolderFileKey) {
+    const session = getFolderFileSession(state.activeFolderFileKey);
+    if (session) {
+      session.baseHtml = html;
+      session.html = html;
+    }
+    renderFileSidebar();
+    scheduleFolderSessionPersist();
+  }
+  persistHtmlSnapshot(html);
+  persistFileMeta();
+  updateStatusPath();
+}
+
+// 保存没有可写源文件句柄的HTML。
+async function saveHtmlWithoutWritableSourceHandle(html) {
+  const filename = getCurrentLocalHtmlFileName();
+
+  if (window.showSaveFilePicker) {
+    try {
+      showToast('拖拽文件没有可写权限，请在弹窗中选择原文件覆盖');
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(html);
+      await writable.close();
+      await setCurrentFileContext({
+        fileHandle: handle,
+        fileName: handle.name || filename,
+        fileRelativePath: handle.name || filename,
+        dirHandle: null,
+        dirName: '',
+      });
+      markCurrentLocalHtmlSaved(html);
+      showToast(`已保存: ${handle.name || filename}`);
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      showToast('保存失败: ' + err.message);
+      return;
+    }
+  }
+
+  downloadFile(filename, html);
+  persistHtmlSnapshot(html);
+  showToast(`浏览器未提供源文件写入权限，已下载: ${filename}`);
+}
 
 // 写出导出文件。
 async function saveExportedHtmlFile(filename, html, successMessage = '文件已导出') {
@@ -7737,25 +8036,13 @@ async function overwriteFile() {
       const writable = await state.currentFileHandle.createWritable();
       await writable.write(html);
       await writable.close();
-      if (state.activeFolderFileKey) {
-        state.currentFileBaseHtml = html;
-        const session = getFolderFileSession(state.activeFolderFileKey);
-        if (session) {
-          session.baseHtml = html;
-          session.html = html;
-        }
-        renderFileSidebar();
-        scheduleFolderSessionPersist();
-      }
-      persistHtmlSnapshot();
+      markCurrentLocalHtmlSaved(html);
       showToast('已覆盖源文件');
     } catch (err) {
       showToast('覆盖失败: ' + err.message);
     }
   } else {
-    downloadFile('index.html', html);
-    persistHtmlSnapshot();
-    showToast('已导出（无源文件引用，使用下载替代）');
+    await saveHtmlWithoutWritableSourceHandle(html);
   }
 }
 
@@ -7837,6 +8124,10 @@ document.addEventListener('keydown', (e) => {
 /* =============================================
    Init
    ============================================= */
+installHtmlDropListeners(document);
+window.addEventListener('dragend', hideFileDropOverlay);
+window.addEventListener('blur', hideFileDropOverlay);
+
 window.addEventListener('beforeunload', () => {
   captureCurrentFileSession();
   persistHtmlSnapshot();
